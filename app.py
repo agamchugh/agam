@@ -104,6 +104,20 @@ def admin():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+    @app.route('/delete/<int:id>')
+def delete_user(id):
+    # Security: Only Agam can delete users
+    if 'email' not in session or session.get('email') != 'agamchugh153@gmail.com':
+        return "Access Denied!"
+    
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM users WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    
+    # After deleting, send the admin back to the list
+    return redirect(url_for('admin'))
 
 if __name__ == '__main__':
     app.run(debug=True)

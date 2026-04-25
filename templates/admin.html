@@ -2,48 +2,81 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#1a1a1a">
-    <title>Admin Panel</title>
+    <title>Admin Panel - User Management</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        html, body { background-color: #1a1a1a !important; min-height: 100%; margin: 0; color: white; }
-        .container { padding-top: 30px; padding-bottom: 30px; }
-        .card { background-color: #2d2d2d; border: 1px solid #ff8c00; border-radius: 10px; overflow: hidden; }
-        .table { color: white !important; margin-bottom: 0; }
+        html, body { 
+            background-color: #1a1a1a !important; 
+            min-height: 100%; 
+            margin: 0; 
+            color: white; 
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .container { padding: 20px; }
+
+        h2 { color: #ff8c00; font-weight: bold; margin-bottom: 20px; }
+
+        .card { 
+            background-color: #2d2d2d; 
+            border: 1px solid #ff8c00; 
+            border-radius: 12px; 
+            overflow: hidden; 
+        }
+
+        /* Mobile Responsive Table */
+        .table { color: white !important; margin-bottom: 0; vertical-align: middle; }
         .table thead { background-color: #ff8c00; color: black; }
-        .btn-orange { background-color: #ff8c00 !important; color: black !important; font-weight: bold; border: none; }
-        .btn-sm { padding: 5px 10px; font-size: 0.8rem; }
-        h2 { color: #ff8c00; font-weight: bold; }
+        .table thead th { border: none; padding: 15px; text-transform: uppercase; font-size: 0.8rem; }
+        
+        .table tbody tr { border-bottom: 1px solid #444; }
+        .table tbody td { padding: 15px; font-size: 0.9rem; }
+
+        .btn-orange { 
+            background-color: #ff8c00 !important; 
+            color: black !important; 
+            font-weight: bold; 
+            border: none; 
+            padding: 5px 15px;
+            border-radius: 6px;
+        }
+
+        .btn-outline-light { border-radius: 6px; font-size: 0.8rem; }
+        
+        /* Highlighting the Username Column */
+        .user-name { color: #ff8c00; font-weight: bold; }
     </style>
 </head>
 <body>
+
     <div class="container">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h2>User Database</h2>
-            <a href="/dashboard" class="btn btn-outline-light btn-sm">Back</a>
+            <a href="/dashboard" class="btn btn-outline-light">Back to Home</a>
         </div>
         
-        <div class="card shadow">
+        <div class="card shadow-lg">
             <div class="table-responsive">
-                <table class="table table-hover align-middle">
+                <table class="table table-hover">
                     <thead>
                         <tr>
-                            <th>ID</th>
-                            <th>Email</th>
-                            <th class="text-center">Actions</th>
+                            <th>User</th>
+                            <th>Contact Info</th>
+                            <th class="text-center">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for user in users %}
-                        <tr style="border-bottom: 1px solid #444;">
-                            <td>{{ user[0] }}</td>
-                            <td>{{ user[1] }}</td>
+                        <tr>
+                            <td>
+                                <div class="user-name">{{ user[1] }}</div> <small class="text-secondary">ID: #{{ user[0] }}</small>
+                            </td>
+                            <td>
+                                <div>{{ user[2] }}</div> <div class="text-info" style="font-size: 0.8rem;">{{ user[3] }}</div> </td>
                             <td class="text-center">
-                                <div class="d-flex gap-2 justify-content-center">
-                                    <a href="/edit/{{ user[0] }}" class="btn btn-orange btn-sm">Edit</a>
-                                    <a href="/delete/{{ user[0] }}" class="btn btn-danger btn-sm">Delete</a>
-                                </div>
+                                <a href="/delete/{{ user[0] }}" class="btn btn-danger btn-sm" onclick="return confirm('Delete this user?')">Delete</a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -51,6 +84,11 @@
                 </table>
             </div>
         </div>
+        
+        <p class="text-center mt-4 text-secondary" style="font-size: 0.8rem;">
+            Logged in as: agamchugh153@gmail.com
+        </p>
     </div>
+
 </body>
 </html>

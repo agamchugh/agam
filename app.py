@@ -9,10 +9,13 @@ app.secret_key = 'supersecretkey'
 def init_db():
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
+    # Adding username and mobile to the table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
             email TEXT NOT NULL UNIQUE,
+            mobile TEXT,
             password TEXT NOT NULL
         )
     ''')

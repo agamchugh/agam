@@ -3,13 +3,13 @@ import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, session
 
 app = Flask(__name__)
-app.secret_key = 'supersecretkey'
+app.secret_key = 'supersecretkey_agam'
 
 # --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
-    # Adding username and mobile to the table
+    # Updated to include username and mobile
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,12 +33,18 @@ def home():
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
+        username = request.form.get('username')
         email = request.form.get('email')
+        mobile = request.form.get('mobile')
         password = request.form.get('password')
+        
         try:
             conn = sqlite3.connect('users.db')
             cursor = conn.cursor()
-            cursor.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, password))
+            cursor.execute('''
+                INSERT INTO users (username, email, mobile, password) 
+                VALUES (?, ?, ?, ?)
+            ''', (username, email, mobile, password))
             conn.commit()
             conn.close()
             return redirect(url_for('login'))
@@ -60,9 +66,14 @@ def login():
 
         if user:
             session['user_id'] = user[0]
-            session['email'] = user[1]
-            # Set admin status if the email is your admin email
-            session['is_admin'] = (user[1] == 'agamchugh153@gmail.com') 
+            session['email'] = user[2] # Email is the 3rd column now
+            
+            # ADMIN CHECK for agamchugh153@gmail.com
+            if user[2] == 'agamchugh153@gmail.com':
+                session['is_admin'] = True
+            else:
+                session['is_admin'] = False
+                
             return redirect(url_for('dashboard'))
         else:
             return "Invalid Credentials! <a href='/login'>Try again</a>"
@@ -72,16 +83,19 @@ def login():
 def dashboard():
     if 'email' not in session:
         return redirect(url_for('login'))
-    return render_template('dashboard.html', email=session['email'], is_admin=session.get('is_admin'))
+    return render_template('dashboard.html', 
+                           email=session['email'], 
+                           is_admin=session.get('is_admin'))
 
 @app.route('/admin')
 def admin():
-    if 'email' not in session or not session.get('is_admin'):
-        return "Access Denied!"
+    # Security: Only your email can enter
+    if 'email' not in session or session.get('email') != 'agamchugh153@gmail.com':
+        return "Access Denied! Only Agam can see this."
     
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT id, email FROM users')
+    cursor.execute('SELECT id, username, email, mobile FROM users')
     users = cursor.fetchall()
     conn.close()
     return render_template('admin.html', users=users)

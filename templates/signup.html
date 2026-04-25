@@ -19,17 +19,25 @@
     <div class="full-screen-bg container-fluid">
         <div class="card shadow p-4">
             <h3 class="text-center mb-4">Create Account</h3>
-            <form action="/signup" method="POST">
-                <div class="mb-3">
-                    <label class="form-label">Email</label>
-                    <input type="email" name="email" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Password</label>
-                    <input type="password" name="password" class="form-control" required>
-                </div>
-                <button type="submit" class="btn btn-primary w-100">Sign Up</button>
-            </form>
+           <form action="/signup" method="POST">
+    <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input type="text" name="username" class="form-control" required placeholder="Enter username">
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Email</label>
+        <input type="email" name="email" class="form-control" required placeholder="name@example.com">
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Mobile Number</label>
+        <input type="tel" name="mobile" class="form-control" required placeholder="Enter mobile no">
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control" required>
+    </div>
+    <button type="submit" class="btn btn-primary w-100">Sign Up</button>
+</form>
             <p class="mt-3 text-center mb-0">Already have an account? <a href="/login">Login</a></p>
         </div>
     </div>

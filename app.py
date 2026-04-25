@@ -62,7 +62,7 @@ def login():
             session['user_id'] = user[0]
             session['email'] = user[1]
             # Set admin status if the email is your admin email
-            session['is_admin'] = (user[1] == 'admin@test.com') 
+            session['is_admin'] = (user[1] == 'agamchugh153@gmail.com') 
             return redirect(url_for('dashboard'))
         else:
             return "Invalid Credentials! <a href='/login'>Try again</a>"

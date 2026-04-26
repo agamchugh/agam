@@ -82,12 +82,14 @@ def book_ride():
 @app.route('/get_active_ride')
 def get_active_ride():
     uid = session['user_id']
-    role_col = 'driver_id' if session['role'] == 'driver' else 'rider_id'
-    join_col = 'rider_id' if session['role'] == 'driver' else 'driver_id'
-    res = query_db(f'''SELECT u.username, u.lat, u.lon, r.status FROM rides r 
-                       JOIN users u ON r.{join_col} = u.id WHERE r.{role_col} = ? 
-                       AND r.status IN ('accepted', 'completed') ORDER BY r.id DESC LIMIT 1''', (uid,), one=True)
-    return jsonify({"name": res[0], "lat": res[1], "lon": res[2], "status": res[3]}) if res else jsonify({"status": "none"})
+    # We check for the MOST RECENT ride for this user, including completed ones
+    res = query_db('''SELECT u.username, u.lat, u.lon, r.status FROM rides r 
+                       JOIN users u ON (CASE WHEN ?='driver' THEN r.rider_id ELSE r.driver_id END) = u.id 
+                       WHERE (r.rider_id = ? OR r.driver_id = ?) 
+                       ORDER BY r.id DESC LIMIT 1''', (session['role'], uid, uid), one=True)
+    if res:
+        return jsonify({"name": res['username'], "lat": res['lat'], "lon": res['lon'], "status": res['status']})
+    return jsonify({"status": "none"})
 
 @app.route('/accept_ride/<int:ride_id>', methods=['POST'])
 def accept_ride(ride_id):
@@ -111,7 +113,7 @@ def clear_completed_ride():
 def check_requests():
     res = query_db('''SELECT r.id, u.username FROM rides r JOIN users u ON r.rider_id = u.id 
                       WHERE r.driver_id = ? AND r.status = "pending"''', (session['user_id'],), one=True)
-    return jsonify({"ride_id": res[0], "rider_name": res[1]}) if res else jsonify({"ride_id": None})
+    return jsonify({"ride_id": res['id'], "rider_name": res['username']}) if res else jsonify({"ride_id": None})
 
 @app.route('/toggle_status', methods=['POST'])
 def toggle_status():
@@ -120,12 +122,18 @@ def toggle_status():
     query_db('UPDATE users SET is_online = ? WHERE id = ?', (new_val, session['user_id']), commit=True)
     return jsonify({"is_online": new_val})
 
-# --- ADMIN ROUTES ---
+# --- ADMIN PANEL ---
 @app.route('/admin_panel')
 def admin_panel():
     if not session.get('is_admin'): return redirect(url_for('login'))
     users = query_db('SELECT * FROM users')
-    return render_template('admin.html', all_users=users)
+    # Fetch all ride history for the admin
+    rides = query_db('''SELECT r.id, u1.username as rider, u2.username as driver, r.status 
+                        FROM rides r 
+                        JOIN users u1 ON r.rider_id = u1.id 
+                        JOIN users u2 ON r.driver_id = u2.id 
+                        ORDER BY r.id DESC''')
+    return render_template('admin.html', all_users=users, all_rides=rides)
 
 @app.route('/edit_user/<int:user_id>', methods=['POST'])
 def edit_user(user_id):
@@ -137,9 +145,8 @@ def edit_user(user_id):
 @app.route('/delete_user/<int:user_id>', methods=['POST'])
 def delete_user(user_id):
     if not session.get('is_admin'): return redirect(url_for('login'))
-    if user_id != session['user_id']: # Prevent self-delete
+    if user_id != session['user_id']:
         query_db('DELETE FROM users WHERE id = ?', (user_id,), commit=True)
-        query_db('DELETE FROM rides WHERE rider_id = ? OR driver_id = ?', (user_id, user_id), commit=True)
     return redirect(url_for('admin_panel'))
 
 @app.route('/logout')

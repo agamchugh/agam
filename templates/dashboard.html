@@ -8,13 +8,12 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
     <style>
-        body { background: #121212; color: white; overflow: hidden; height: 100vh; }
+        body { background: #121212; color: white; overflow: hidden; height: 100vh; margin: 0; }
         #map { height: 60%; width: 100%; border-bottom: 4px solid #ffc107; }
         .ui-panel { height: 40%; padding: 15px; background: #1e1e26; border-radius: 30px 30px 0 0; z-index: 1000; position: relative; overflow-y: auto; }
         .btn-main { background: #ffc107; color: black; font-weight: bold; padding: 12px; border-radius: 15px; width: 100%; border: none; }
         .status-box { background: #2a2a35; padding: 12px; border-radius: 15px; margin-top: 10px; border-left: 4px solid #ffc107; }
         .leaflet-routing-container { display: none !important; }
-        .driver-marker { filter: hue-rotate(140deg); }
     </style>
 </head>
 <body>
@@ -61,13 +60,15 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
     <script>
+        // 1. Initialize Map safely
         var map = L.map('map', {zoomControl: false}).setView([20.59, 78.96], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         var uMarker = L.marker([0,0]).addTo(map);
-        var otherMarker = L.marker([0,0], {icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', className: 'driver-marker'})}).addTo(map).setOpacity(0);
+        var otherMarker = L.marker([0,0]).addTo(map).setOpacity(0);
         var routingControl = null;
         var isSyncing = false;
 
+        // 2. Routing Logic
         function updateRouting(p1, p2) {
             if (routingControl) {
                 routingControl.setWaypoints([L.latLng(p1[0], p1[1]), L.latLng(p2[0], p2[1])]);
@@ -75,7 +76,7 @@
                 routingControl = L.Routing.control({
                     waypoints: [L.latLng(p1[0], p1[1]), L.latLng(p2[0], p2[1])],
                     createMarker: () => null,
-                    lineOptions: { styles: [{ color: '#007bff', weight: 8, opacity: 0.9 }] },
+                    lineOptions: { styles: [{ color: '#007bff', weight: 6, opacity: 0.8 }] },
                     addWaypoints: false, fitSelectedRoutes: false
                 }).on('routesfound', e => {
                     var s = e.routes[0].summary;
@@ -88,6 +89,7 @@
             }
         }
 
+        // 3. Sync Logic with Null Checks
         async function sync() {
             if (isSyncing) return;
             isSyncing = true;
@@ -98,35 +100,48 @@
                     await fetch('/update_location', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({latitude:lt, longitude:ln})});
                     let r = await fetch('/get_active_ride');
                     let d = await r.json();
+                    
                     if(d.status === 'accepted') {
                         otherMarker.setLatLng([d.lat, d.lon]).setOpacity(1);
                         updateRouting([lt, ln], [d.lat, d.lon]);
-                        document.getElementById('ride-info')?.classList.remove('d-none');
-                        document.getElementById('bookBtn')?.classList.add('d-none');
-                        if(document.getElementById('drv-name')) document.getElementById('drv-name').innerText = d.name;
-                        if(document.getElementById('active-ride-box')) {
-                            document.getElementById('active-ride-box').classList.remove('d-none');
-                            document.getElementById('rider-name-display').innerText = d.name;
-                        }
+                        
+                        // Use optional chaining or manual checks for Rider UI
+                        let rideInfo = document.getElementById('ride-info');
+                        if(rideInfo) rideInfo.classList.remove('d-none');
+                        
+                        let bookBtn = document.getElementById('bookBtn');
+                        if(bookBtn) bookBtn.classList.add('d-none');
+                        
+                        let drvName = document.getElementById('drv-name');
+                        if(drvName) drvName.innerText = d.name;
+
+                        // Check for Driver UI
+                        let activeBox = document.getElementById('active-ride-box');
+                        if(activeBox) activeBox.classList.remove('d-none');
+                        
+                        let riderDisp = document.getElementById('rider-name-display');
+                        if(riderDisp) riderDisp.innerText = d.name;
+                        
                     } else if (d.status === 'completed') {
                         alert("Trip Finished!");
                         await fetch('/clear_completed_ride', {method:'POST'});
                         location.reload();
                     }
-                } catch(e) {}
+                } catch(e) { console.error("Sync error:", e); }
                 isSyncing = false;
             }, () => { isSyncing = false; }, {enableHighAccuracy: true});
         }
-        setInterval(sync, 4000); sync();
+        setInterval(sync, 4000); 
+        sync();
 
-        // Safety wrapped logic
+        // 4. Role-Specific Events
         {% if role == 'rider' %}
-        const bookBtn = document.getElementById('bookBtn');
-        if(bookBtn) {
-            bookBtn.onclick = () => {
+        var bBtn = document.getElementById('bookBtn');
+        if(bBtn) {
+            bBtn.onclick = () => {
                 fetch('/book_ride', {method:'POST'}).then(r => r.json()).then(d => {
-                    if(d.status === 'none') alert("No drivers within 50km!");
-                    else bookBtn.classList.add('d-none');
+                    if(d.status === 'none') alert("No drivers nearby!");
+                    else bBtn.classList.add('d-none');
                 });
             };
         }
@@ -136,37 +151,50 @@
             if(curR) return;
             let r = await fetch('/check_requests');
             let d = await r.json();
-            if(d.ride_id) {
+            if(d && d.ride_id) {
                 curR = d.ride_id;
-                if(document.getElementById('rider-name')) document.getElementById('rider-name').innerText = d.rider_name;
-                document.getElementById('req-box')?.classList.remove('d-none');
+                let rName = document.getElementById('rider-name');
+                if(rName) rName.innerText = d.rider_name;
+                let reqBox = document.getElementById('req-box');
+                if(reqBox) reqBox.classList.remove('d-none');
             }
         }, 3000);
 
-        document.getElementById('acceptBtn').onclick = () => {
-            fetch('/accept_ride/'+curR, {method:'POST'}).then(() => {
-                document.getElementById('req-box')?.classList.add('d-none');
-                sync();
-            });
-        };
+        let accBtn = document.getElementById('acceptBtn');
+        if(accBtn) {
+            accBtn.onclick = () => {
+                fetch('/accept_ride/'+curR, {method:'POST'}).then(() => {
+                    document.getElementById('req-box')?.classList.add('d-none');
+                    sync();
+                });
+            };
+        }
 
-        document.getElementById('finishBtn').onclick = async () => {
-            if(confirm("Finish trip?")) {
-                await fetch('/finish_trip', {method:'POST'});
-                await fetch('/clear_completed_ride', {method:'POST'});
-                location.reload();
-            }
-        };
+        let finBtn = document.getElementById('finishBtn');
+        if(finBtn) {
+            finBtn.onclick = async () => {
+                if(confirm("Finish trip?")) {
+                    await fetch('/finish_trip', {method:'POST'});
+                    await fetch('/clear_completed_ride', {method:'POST'});
+                    location.reload();
+                }
+            };
+        }
 
-        document.getElementById('offlineBtn').onclick = function() {
-            fetch('/toggle_status', {method:'POST'}).then(r => r.json()).then(d => {
-                let b = document.getElementById('stat-badge');
-                b.className = d.is_online ? "badge bg-success" : "badge bg-danger";
-                b.innerText = d.is_online ? "ONLINE" : "OFFLINE";
-                this.innerText = d.is_online ? "GO OFFLINE" : "GO ONLINE";
-                this.style.background = d.is_online ? "#dc3545" : "#28a745";
-            });
-        };
+        let offBtn = document.getElementById('offlineBtn');
+        if(offBtn) {
+            offBtn.onclick = function() {
+                fetch('/toggle_status', {method:'POST'}).then(r => r.json()).then(d => {
+                    let b = document.getElementById('stat-badge');
+                    if(b) {
+                        b.className = d.is_online ? "badge bg-success" : "badge bg-danger";
+                        b.innerText = d.is_online ? "ONLINE" : "OFFLINE";
+                    }
+                    this.innerText = d.is_online ? "GO OFFLINE" : "GO ONLINE";
+                    this.style.background = d.is_online ? "#dc3545" : "#28a745";
+                });
+            };
+        }
         {% endif %}
     </script>
 </body>

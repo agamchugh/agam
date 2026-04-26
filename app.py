@@ -7,12 +7,12 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 app = Flask(__name__)
-# Security: Using your Render Environment Variable for the secret key
 app.secret_key = os.environ.get('SECRET_KEY', 'agam_rickshaw_secure_key')
 app.permanent_session_lifetime = timedelta(days=30)
 
 # --- MONGODB CONFIG ---
-MONGO_URI = os.environ.get('MONGO_URI')
+MONGO_URI = os.environ.get('MONGO_URI', "mongodb+srv://agamchugh:agamchugh1234@agam.mn4qkm8.mongodb.net/?appName=agam")
+
 client = MongoClient(MONGO_URI)
 db = client['rickshaw_db']
 users_coll = db['users']
@@ -57,7 +57,6 @@ def login():
         
         if user:
             session.permanent = True
-            # Matches your ADMIN_EMAIL environment variable
             is_adm = (email == os.environ.get('ADMIN_EMAIL', 'agamchugh153@gmail.com'))
             session.update({
                 'user_id': str(user['_id']), 
@@ -89,10 +88,7 @@ def book_ride():
     
     for d in drivers:
         if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 50.0:
-            # Clear old pending rides
             rides_coll.delete_many({"rider_id": session['user_id'], "status": "pending"})
-            
-            # OTP generation: ensuring it is a string for MongoDB storage
             otp_code = str(random.randint(1000, 9999))
             
             rides_coll.insert_one({
@@ -109,7 +105,6 @@ def get_active_ride():
     if 'user_id' not in session: return jsonify({"status": "none"})
     uid = session['user_id']
     
-    # Check for any active ride (Pending, Accepted, or Started)
     ride = rides_coll.find_one({
         "$or": [{"rider_id": uid}, {"driver_id": uid}],
         "status": {"$in": ["pending", "accepted", "started", "completed"]}
@@ -124,10 +119,19 @@ def get_active_ride():
             "lat": other_user['lat'] if other_user else 0,
             "lon": other_user['lon'] if other_user else 0,
             "status": ride['status'],
-            # The rider needs the OTP even while status is 'pending' or 'accepted'
             "otp": ride.get('otp') if session['role'] == 'rider' else None
         })
     return jsonify({"status": "none"})
+
+@app.route('/cancel_ride', methods=['POST'])
+def cancel_ride():
+    if 'user_id' not in session: return jsonify({"status": "unauthorized"}), 401
+    # Only allow cancellation if the ride hasn't started yet
+    rides_coll.delete_many({
+        "rider_id": session['user_id'], 
+        "status": {"$in": ["pending", "accepted"]}
+    })
+    return jsonify({"status": "success"})
 
 @app.route('/accept_ride/<string:ride_id>', methods=['POST'])
 def accept_ride(ride_id):
@@ -142,23 +146,20 @@ def accept_ride(ride_id):
 def verify_ride_otp():
     if 'user_id' not in session: return jsonify({"success": False}), 401
     data = request.json
-    user_otp = str(data.get('otp')) # Convert to string to match DB
-    
     ride = rides_coll.find_one({"driver_id": session['user_id'], "status": "accepted"})
     
-    if ride and ride.get('otp') == user_otp:
+    if ride and ride.get('otp') == str(data.get('otp')):
         rides_coll.update_one({"_id": ride['_id']}, {"$set": {"status": "started"}})
         return jsonify({"success": True})
-    
-    return jsonify({"success": False, "message": "Incorrect OTP"})
+    return jsonify({"success": False})
 
 @app.route('/finish_trip', methods=['POST'])
 def finish_trip():
-    res = rides_coll.update_one(
+    rides_coll.update_one(
         {"driver_id": session['user_id'], "status": "started"},
         {"$set": {"status": "completed"}}
     )
-    return jsonify({"status": "success" if res.modified_count > 0 else "error"})
+    return jsonify({"status": "success"})
 
 @app.route('/clear_completed_ride', methods=['POST'])
 def clear_completed_ride():

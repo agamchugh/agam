@@ -6,18 +6,20 @@
     <title>Rickshaw Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
     <style>
         body { background: #0b0b0b; color: #fff; font-family: 'Segoe UI', sans-serif; }
-        #map { height: 40vh; width: 100%; border-bottom: 3px solid #ff9800; }
+        #map { height: 45vh; width: 100%; border-bottom: 3px solid #ff9800; }
         .card { background: #1a1a1a !important; border: 1px solid #333; border-radius: 15px; margin-top: -20px; z-index: 999; }
         .btn-warning { background: #ff9800; color: #000; font-weight: 800; border: none; }
         .otp-box { font-size: 2.5rem; color: #ff9800; background: #000; border: 1px solid #444; letter-spacing: 8px; font-weight: bold; }
-        .admin-panel { background: #000; border-top: 1px solid #ff9800; padding: 20px; margin-top: 50px; }
+        #distance-tag { position: absolute; top: 10px; right: 10px; z-index: 1000; background: rgba(0,0,0,0.8); padding: 5px 12px; border-radius: 20px; border: 1px solid #ff9800; font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
+<div id="distance-tag" class="d-none text-warning">0.0 km away</div>
 
 <div class="container mt-3">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -31,9 +33,9 @@
             <button class="btn btn-warning w-100 py-3 shadow-lg" onclick="bookRide()">BOOK NOW</button>
         </div>
         <div id="ride-info" class="d-none card p-4 text-center shadow">
-            <small id="ride-status-text" class="text-muted fw-bold">DRIVER IS COMING • OTP</small>
+            <small id="ride-status-text" class="text-muted fw-bold text-uppercase">Driver is Coming</small>
             <div id="otp-display" class="otp-box my-3 py-2">0000</div>
-            <button class="btn btn-outline-secondary w-100" onclick="cancelRide()">Cancel Ride</button>
+            <button class="btn btn-outline-danger w-100" onclick="cancelRide()">Cancel Ride</button>
         </div>
     </div>
     {% endif %}
@@ -42,45 +44,40 @@
     <div id="driver-controls">
         <button id="online-btn" class="btn btn-success w-100 py-3 mb-3" onclick="toggleOnline()">GO ONLINE</button>
         <div id="job-card" class="d-none card p-4">
-            <h5 class="text-warning mb-3">PICKUP: <span id="rider-name" class="text-white">---</span></h5>
+            <h5 class="text-warning mb-3">RIDER: <span id="rider-name" class="text-white">---</span></h5>
             <div id="verify-area">
-                <input type="number" id="otp-input" class="form-control text-center mb-3 bg-dark text-white border-secondary" placeholder="Enter OTP">
+                <input type="number" id="otp-input" class="form-control text-center mb-3 bg-dark text-white" placeholder="Enter OTP">
                 <button class="btn btn-warning w-100" onclick="verifyOTP()">VERIFY & START</button>
             </div>
             <div id="finish-area" class="d-none">
-                <div class="alert alert-success fw-bold">TRIP IN PROGRESS</div>
+                <div class="alert alert-success fw-bold py-2 mb-3">TRIP IN PROGRESS</div>
                 <button class="btn btn-success w-100 py-3" onclick="completeRide()">COMPLETE TRIP</button>
             </div>
         </div>
     </div>
     {% endif %}
-
-    {% if is_admin %}
-    <div class="admin-panel shadow">
-        <h5 class="text-warning mb-3">ADMIN TOOLS</h5>
-        <button class="btn btn-danger btn-sm w-100" onclick="resetSystem()">PURGE ALL DATA</button>
-    </div>
-    {% endif %}
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
 <script>
     var map = L.map('map', {zoomControl: false}).setView([30.47, 74.51], 14);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
     var myMarker = L.marker([0,0]).addTo(map);
     var partnerMarker = L.marker([0,0], {opacity: 0}).addTo(map);
-    
+    var routingControl = null;
     var isOnline = false;
+    var currentLat, currentLon;
 
     function geo() {
         navigator.geolocation.getCurrentPosition(p => {
-            const {latitude, longitude} = p.coords;
-            myMarker.setLatLng([latitude, longitude]);
-            map.panTo([latitude, longitude]);
+            currentLat = p.coords.latitude;
+            currentLon = p.coords.longitude;
+            myMarker.setLatLng([currentLat, currentLon]);
             fetch('/update_location', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({latitude, longitude, online: isOnline})
+                body: JSON.stringify({latitude: currentLat, longitude: currentLon, online: isOnline})
             });
         });
     }
@@ -89,26 +86,42 @@
         fetch('/get_active_ride').then(r => r.json()).then(data => {
             const role = "{{ role }}";
             if (data.status !== "none") {
-                if (data.lat) partnerMarker.setLatLng([data.lat, data.lon]).setOpacity(1);
+                partnerMarker.setLatLng([data.lat, data.lon]).setOpacity(1);
                 
+                // Show distance and blue line
+                document.getElementById('distance-tag').classList.remove('d-none');
+                let dist = (map.distance([currentLat, currentLon], [data.lat, data.lon]) / 1000).toFixed(2);
+                document.getElementById('distance-tag').innerText = dist + " km away";
+
+                if (!routingControl) {
+                    routingControl = L.Routing.control({
+                        waypoints: [L.latLng(currentLat, currentLon), L.latLng(data.lat, data.lon)],
+                        lineOptions: { styles: [{color: '#007bff', weight: 6}] },
+                        createMarker: function() { return null; },
+                        addWaypoints: false
+                    }).addTo(map);
+                } else {
+                    routingControl.setWaypoints([L.latLng(currentLat, currentLon), L.latLng(data.lat, data.lon)]);
+                }
+
                 if (role === 'rider') {
                     document.getElementById('book-area').classList.add('d-none');
                     document.getElementById('ride-info').classList.remove('d-none');
                     document.getElementById('otp-display').innerText = data.otp;
-                    if(data.status === 'started') document.getElementById('ride-status-text').innerText = "TRIP STARTED";
+                    if(data.status === 'started') document.getElementById('ride-status-text').innerText = "Trip Started";
                 } else {
                     document.getElementById('job-card').classList.remove('d-none');
                     document.getElementById('rider-name').innerText = data.name;
                     if (data.status === 'started') {
                         document.getElementById('verify-area').classList.add('d-none');
                         document.getElementById('finish-area').classList.remove('d-none');
-                    } else {
-                        document.getElementById('verify-area').classList.remove('d-none');
-                        document.getElementById('finish-area').classList.add('d-none');
                     }
                 }
             } else {
+                // CLEAR UI IF NO RIDE
+                if (routingControl) { map.removeControl(routingControl); routingControl = null; }
                 partnerMarker.setOpacity(0);
+                document.getElementById('distance-tag').classList.add('d-none');
                 if (role === 'rider') {
                     document.getElementById('book-area').classList.remove('d-none');
                     document.getElementById('ride-info').classList.add('d-none');
@@ -128,27 +141,23 @@
     }
 
     function bookRide() { fetch('/book_ride', {method: 'POST'}).then(() => sync()); }
+    function cancelRide() { fetch('/cancel_ride', {method: 'POST'}).then(() => sync()); }
     
     function verifyOTP() {
         const otp = document.getElementById('otp-input').value;
-        fetch('/verify_ride_otp', {
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({otp})
-        }).then(r => r.json()).then(d => d.success ? sync() : alert("WRONG OTP"));
+        fetch('/verify_ride_otp', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({otp})})
+        .then(r => r.json()).then(d => d.success ? sync() : alert("WRONG OTP"));
     }
 
     function completeRide() {
         fetch('/complete_ride', {method: 'POST'}).then(() => {
             alert("Trip Finished!");
-            location.reload();
+            sync(); // This clears the UI via the sync logic
         });
     }
 
-    function resetSystem() { if(confirm("Clear all?")) fetch('/admin_reset', {method: 'POST'}).then(() => location.reload()); }
-
     setInterval(geo, 5000); geo();
-    setInterval(sync, 3000); sync();
+    setInterval(sync, 4000); sync();
 </script>
 </body>
 </html>

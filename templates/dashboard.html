@@ -1,33 +1,97 @@
-// FOR RIDERS: Clicking the button
-document.getElementById('bookBtn')?.addEventListener('click', function() {
-    this.innerText = "Searching...";
-    
-    // First, get Rider GPS
-    navigator.geolocation.getCurrentPosition(pos => {
-        fetch('/update_location', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({latitude: pos.coords.latitude, longitude: pos.coords.longitude})
-        }).then(() => {
-            // Then, Request Ride
-            fetch('/book_ride', { method: 'POST' })
-            .then(res => res.json())
-            .then(data => alert(data.message));
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a1a">
+    <title>Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        html, body { background-color: #1a1a1a; height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; color: white; font-family: 'Segoe UI', sans-serif; }
+        .card { background-color: #24252a; border: 1px solid #343a40; border-radius: 20px; width: 100%; max-width: 400px; padding: 30px; text-align: center; }
+        .user-name { color: #ffc107; font-weight: bold; font-size: 1.5rem; }
+        .role-badge { background-color: #3d3d3d; color: #ffc107; border-radius: 20px; padding: 5px 15px; font-size: 0.8rem; display: inline-block; margin-bottom: 20px; }
+        .btn-action { background-color: #ffc107 !important; color: black !important; font-weight: bold; border: none; padding: 15px; border-radius: 12px; width: 100%; margin-top: 20px; }
+        .status-box { background-color: #1a1a1a; padding: 15px; border-radius: 10px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="card shadow-lg">
+        <div class="mb-3"><img src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png" width="60" style="filter: invert(100%);"></div>
+        <div>Welcome, <span class="user-name">{{ username }}</span></div>
+        <div class="role-badge">{{ role.upper() }}</div>
+
+        {% if role == 'rider' %}
+        <div>
+            <h5>Ready to travel?</h5>
+            <button id="bookBtn" class="btn-action shadow">📍 BOOK RIDE NOW</button>
+            <p class="text-secondary small mt-3">Searching for autos within 1.5km...</p>
+        </div>
+        {% elif role == 'driver' %}
+        <div class="status-box">
+            <span style="color: #28a745;">●</span> <strong>Status: ONLINE</strong>
+            <p class="text-secondary small mb-0">Waiting for ride requests...</p>
+        </div>
+        <button class="btn-action" style="background-color: #dc3545 !important; color: white !important;">GO OFFLINE</button>
+        {% endif %}
+
+        {% if is_admin %}<a href="/admin" class="btn-action" style="background-color: #ff8c00 !important;">ADMIN PANEL</a>{% endif %}
+        <a href="/logout" class="btn text-secondary mt-3">Logout</a>
+    </div>
+
+    <script>
+    // --- RIDER LOGIC ---
+    document.getElementById('bookBtn')?.addEventListener('click', function() {
+        let btn = this;
+        btn.innerText = "Searching...";
+        
+        navigator.geolocation.getCurrentPosition(pos => {
+            fetch('/update_location', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({latitude: pos.coords.latitude, longitude: pos.coords.longitude})
+            }).then(() => {
+                fetch('/book_ride', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    alert(data.message);
+                    btn.innerText = "📍 BOOK RIDE NOW";
+                });
+            });
+        }, err => {
+            alert("Please enable GPS to book a ride.");
+            btn.innerText = "📍 BOOK RIDE NOW";
         });
     });
-});
 
-// FOR DRIVERS: Checking for requests every 5 seconds
-{% if role == 'driver' %}
-setInterval(() => {
-    fetch('/check_requests')
-    .then(res => res.json())
-    .then(data => {
-        if(data.ride_id) {
-            if(confirm("New Ride Request from " + data.rider_name + "! Accept?")) {
-                alert("Ride Accepted! Navigate to Rider.");
+    // --- DRIVER LOGIC ---
+    {% if role == 'driver' %}
+    function updateDriverStatus() {
+        navigator.geolocation.getCurrentPosition(pos => {
+            fetch('/update_location', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({latitude: pos.coords.latitude, longitude: pos.coords.longitude})
+            });
+        });
+    }
+
+    function checkRides() {
+        fetch('/check_requests')
+        .then(res => res.json())
+        .then(data => {
+            if(data.ride_id) {
+                if(confirm("New Ride Request from " + data.rider_name + "! Accept?")) {
+                    alert("Ride Accepted! Go to " + data.rider_name);
+                }
             }
-        }
-    });
-}, 5000);
-{% endif %}
+        });
+    }
+
+    setInterval(updateDriverStatus, 20000); // Update GPS every 20s
+    setInterval(checkRides, 5000);         // Check for rides every 5s
+    updateDriverStatus();
+    {% endif %}
+    </script>
+</body>
+</html>

@@ -2,93 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#1a1a1a">
-    <title>Admin Panel - User Management</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Rickshaw Live</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        html, body { 
-            background-color: #1a1a1a !important; 
-            min-height: 100%; 
-            margin: 0; 
-            color: white; 
-            font-family: 'Segoe UI', sans-serif;
-        }
-
-        .container { padding: 20px; }
-
-        h2 { color: #ff8c00; font-weight: bold; margin-bottom: 20px; }
-
-        .card { 
-            background-color: #2d2d2d; 
-            border: 1px solid #ff8c00; 
-            border-radius: 12px; 
-            overflow: hidden; 
-        }
-
-        /* Mobile Responsive Table */
-        .table { color: white !important; margin-bottom: 0; vertical-align: middle; }
-        .table thead { background-color: #ff8c00; color: black; }
-        .table thead th { border: none; padding: 15px; text-transform: uppercase; font-size: 0.8rem; }
-        
-        .table tbody tr { border-bottom: 1px solid #444; }
-        .table tbody td { padding: 15px; font-size: 0.9rem; }
-
-        .btn-orange { 
-            background-color: #ff8c00 !important; 
-            color: black !important; 
-            font-weight: bold; 
-            border: none; 
-            padding: 5px 15px;
-            border-radius: 6px;
-        }
-
-        .btn-outline-light { border-radius: 6px; font-size: 0.8rem; }
-        
-        /* Highlighting the Username Column */
-        .user-name { color: #ff8c00; font-weight: bold; }
+        body { background: #121212; color: white; padding: 20px; }
+        .table { background: #1e1e26; color: white; border-radius: 15px; }
+        .table th { color: #ffc107; border: none; }
     </style>
 </head>
-<body>
-
-    <div class="container">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>User Database</h2>
-            <a href="/dashboard" class="btn btn-outline-light">Back to Home</a>
-        </div>
-        
-        <div class="card shadow-lg">
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>User</th>
-                            <th>Contact Info</th>
-                            <th class="text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for user in users %}
-                        <tr>
-                            <td>
-                                <div class="user-name">{{ user[1] }}</div> <small class="text-secondary">ID: #{{ user[0] }}</small>
-                            </td>
-                            <td>
-                                <div>{{ user[2] }}</div> <div class="text-info" style="font-size: 0.8rem;">{{ user[3] }}</div> </td>
-                            <td class="text-center">
-                                <a href="/delete/{{ user[0] }}" class="btn btn-danger btn-sm" onclick="return confirm('Delete this user?')">Delete</a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        
-        <p class="text-center mt-4 text-secondary" style="font-size: 0.8rem;">
-            Logged in as: agamchugh153@gmail.com
-        </p>
+<body class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>🛠️ Admin Panel</h1>
+        <a href="/dashboard" class="btn btn-outline-warning">Back to Map</a>
     </div>
 
+    <h3>Users</h3>
+    <table class="table table-dark table-hover mb-5 shadow">
+        <thead><tr><th>ID</th><th>User</th><th>Email</th><th>Role</th><th>Status</th></tr></thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user[0] }}</td><td>{{ user[1] }}</td><td>{{ user[2] }}</td><td>{{ user[3].upper() }}</td>
+                <td><span class="badge {{ 'bg-success' if user[4] == 1 else 'bg-danger' }}">{{ 'ONLINE' if user[4] == 1 else 'OFFLINE' }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h3>Ride History</h3>
+    <table class="table table-dark table-hover shadow">
+        <thead><tr><th>ID</th><th>Rider</th><th>Driver</th><th>Status</th></tr></thead>
+        <tbody>
+            {% for ride in rides %}
+            <tr><td>#{{ ride[0] }}</td><td>{{ ride[1] }}</td><td>{{ ride[2] }}</td><td class="text-warning">{{ ride[3].upper() }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </body>
 </html>

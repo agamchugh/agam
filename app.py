@@ -6,39 +6,31 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 app = Flask(__name__)
 app.secret_key = 'agam_rickshaw_secure_key'
 
-# --- DATABASE PATH FIX ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'users.db')
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row 
-    return conn
+# --- DATABASE UTILITY ---
+def query_db(query, args=(), one=False, commit=False):
+    """Connects, executes, and closes automatically to prevent lag/locks."""
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(query, args)
+        if commit: conn.commit()
+        rv = cur.fetchall()
+        return (rv[0] if rv else None) if one else rv
 
 def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        username TEXT, 
-        email TEXT NOT NULL UNIQUE, 
-        mobile TEXT, 
-        password TEXT NOT NULL, 
-        role TEXT DEFAULT 'rider', 
-        lat REAL DEFAULT 0, 
-        lon REAL DEFAULT 0, 
-        is_online BOOLEAN DEFAULT 0)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS rides (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        rider_id INTEGER, 
-        driver_id INTEGER, 
-        status TEXT DEFAULT 'pending')''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, email TEXT NOT NULL UNIQUE, 
+            mobile TEXT, password TEXT NOT NULL, role TEXT DEFAULT 'rider', 
+            lat REAL DEFAULT 0, lon REAL DEFAULT 0, is_online BOOLEAN DEFAULT 0)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS rides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, rider_id INTEGER, driver_id INTEGER, 
+            status TEXT DEFAULT 'pending')''')
 
 init_db()
 
-# --- HELPER FUNCTIONS ---
 def get_distance(lat1, lon1, lat2, lon2):
     R = 6371
     dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
@@ -47,33 +39,24 @@ def get_distance(lat1, lon1, lat2, lon2):
 
 # --- ROUTES ---
 @app.route('/')
-def home(): 
-    return redirect(url_for('login'))
+def home(): return redirect(url_for('login'))
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
-        role, user, email, mob, pwd = request.form.get('role'), request.form.get('username'), request.form.get('email'), request.form.get('mobile'), request.form.get('password')
+        data = (request.form.get('username'), request.form.get('email'), request.form.get('mobile'), request.form.get('password'), request.form.get('role'))
         try:
-            conn = get_db_connection()
-            conn.execute('INSERT INTO users (username, email, mobile, password, role) VALUES (?, ?, ?, ?, ?)', (user, email, mob, pwd, role))
-            conn.commit()
-            conn.close()
+            query_db('INSERT INTO users (username, email, mobile, password, role) VALUES (?, ?, ?, ?, ?)', data, commit=True)
             return redirect(url_for('login'))
-        except Exception as e: 
-            return f"Signup Error: {e}"
+        except: return "Error: Email exists."
     return render_template('signup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email, pwd = request.form.get('email'), request.form.get('password')
-        conn = get_db_connection()
-        user = conn.execute('SELECT * FROM users WHERE email = ? AND password = ?', (email, pwd)).fetchone()
-        conn.close()
+        user = query_db('SELECT * FROM users WHERE email = ? AND password = ?', (request.form.get('email'), request.form.get('password')), one=True)
         if user:
-            is_admin = (user['email'] == 'agamchugh153@gmail.com')
-            session.update({'user_id': user['id'], 'username': user['username'], 'role': user['role'], 'is_admin': is_admin})
+            session.update({'user_id': user['id'], 'username': user['username'], 'role': user['role'], 'is_admin': (user['email'] == 'agamchugh153@gmail.com')})
             return redirect(url_for('dashboard'))
     return render_template('login.html')
 
@@ -82,102 +65,61 @@ def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
     return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
 
-@app.route('/admin_panel')
-def admin_panel():
-    if not session.get('is_admin'): 
-        return "Unauthorized Access", 403
-    conn = get_db_connection()
-    users = conn.execute('SELECT id, username, email, role, is_online FROM users').fetchall()
-    rides = conn.execute('''SELECT rides.id, u1.username as rider, u2.username as driver, rides.status 
-                          FROM rides 
-                          JOIN users u1 ON rides.rider_id = u1.id 
-                          JOIN users u2 ON rides.driver_id = u2.id''').fetchall()
-    conn.close()
-    return render_template('admin.html', users=users, rides=rides)
-
 @app.route('/update_location', methods=['POST'])
 def update_location():
-    data = request.json
-    conn = get_db_connection()
-    conn.execute('UPDATE users SET lat = ?, lon = ? WHERE id = ?', (data['latitude'], data['longitude'], session['user_id']))
-    conn.commit(); conn.close()
+    query_db('UPDATE users SET lat = ?, lon = ? WHERE id = ?', (request.json['latitude'], request.json['longitude'], session['user_id']), commit=True)
     return jsonify({"status": "success"})
 
 @app.route('/book_ride', methods=['POST'])
 def book_ride():
-    uid = session.get('user_id')
-    conn = get_db_connection()
-    user = conn.execute('SELECT lat, lon FROM users WHERE id = ?', (uid,)).fetchone()
-    drivers = conn.execute('SELECT id, lat, lon FROM users WHERE role = "driver" AND is_online = 1').fetchall()
-    
+    user = query_db('SELECT lat, lon FROM users WHERE id = ?', (session['user_id'],), one=True)
+    drivers = query_db('SELECT id, lat, lon FROM users WHERE role = "driver" AND is_online = 1')
     for d in drivers:
-        if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 50.0:
-            conn.execute("DELETE FROM rides WHERE rider_id = ? AND status != 'accepted'", (uid,))
-            conn.execute('INSERT INTO rides (rider_id, driver_id, status) VALUES (?, ?, "pending")', (uid, d['id']))
-            conn.commit(); conn.close()
+        if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 1.5: # 1.5 KM RANGE
+            query_db('DELETE FROM rides WHERE rider_id = ? AND status = "pending"', (session['user_id'],), commit=True)
+            query_db('INSERT INTO rides (rider_id, driver_id, status) VALUES (?, ?, "pending")', (session['user_id'], d['id']), commit=True)
             return jsonify({"status": "success"})
-    conn.close(); return jsonify({"status": "none"})
+    return jsonify({"status": "none"})
 
 @app.route('/get_active_ride')
 def get_active_ride():
-    if 'user_id' not in session: return jsonify({"status": "none"})
     uid = session['user_id']
-    conn = get_db_connection()
-    if session['role'] == 'driver':
-        res = conn.execute('''SELECT u.username, u.lat, u.lon, r.status FROM rides r
-                              JOIN users u ON r.rider_id = u.id WHERE r.driver_id = ? 
-                              AND r.status IN ('accepted', 'completed') ORDER BY r.id DESC LIMIT 1''', (uid,)).fetchone()
-    else:
-        res = conn.execute('''SELECT u.username, u.lat, u.lon, r.status FROM rides r
-                              JOIN users u ON r.driver_id = u.id WHERE r.rider_id = ? 
-                              AND r.status IN ('accepted', 'completed') ORDER BY r.id DESC LIMIT 1''', (uid,)).fetchone()
-    conn.close()
+    role_col = 'driver_id' if session['role'] == 'driver' else 'rider_id'
+    join_col = 'rider_id' if session['role'] == 'driver' else 'driver_id'
+    res = query_db(f'''SELECT u.username, u.lat, u.lon, r.status FROM rides r 
+                       JOIN users u ON r.{join_col} = u.id WHERE r.{role_col} = ? 
+                       AND r.status IN ('accepted', 'completed') ORDER BY r.id DESC LIMIT 1''', (uid,), one=True)
     return jsonify({"name": res[0], "lat": res[1], "lon": res[2], "status": res[3]}) if res else jsonify({"status": "none"})
 
 @app.route('/accept_ride/<int:ride_id>', methods=['POST'])
 def accept_ride(ride_id):
-    conn = get_db_connection()
-    conn.execute('UPDATE rides SET status = "accepted" WHERE id = ?', (ride_id,))
-    conn.commit(); conn.close()
+    ride = query_db('SELECT rider_id FROM rides WHERE id = ?', (ride_id,), one=True)
+    if ride:
+        query_db('DELETE FROM rides WHERE rider_id = ? AND status = "pending" AND id != ?', (ride['rider_id'], ride_id), commit=True)
+        query_db('UPDATE rides SET status = "accepted" WHERE id = ?', (ride_id,), commit=True)
     return jsonify({"status": "success"})
 
 @app.route('/finish_trip', methods=['POST'])
 def finish_trip():
-    uid = session.get('user_id')
-    conn = get_db_connection()
-    conn.execute("UPDATE rides SET status = 'completed' WHERE driver_id = ? AND status = 'accepted'", (uid,))
-    conn.commit(); conn.close()
+    query_db("UPDATE rides SET status = 'completed' WHERE driver_id = ? AND status = 'accepted'", (session['user_id'],), commit=True)
     return jsonify({"status": "success"})
 
-# --- NEW ROUTE TO PREVENT STICKING ---
 @app.route('/clear_completed_ride', methods=['POST'])
 def clear_completed_ride():
-    uid = session.get('user_id')
-    role = session.get('role')
-    conn = get_db_connection()
-    if role == 'driver':
-        conn.execute("DELETE FROM rides WHERE driver_id = ? AND status = 'completed'", (uid,))
-    else:
-        conn.execute("DELETE FROM rides WHERE rider_id = ? AND status = 'completed'", (uid,))
-    conn.commit()
-    conn.close()
+    query_db("DELETE FROM rides WHERE (driver_id = ? OR rider_id = ?) AND status = 'completed'", (session['user_id'], session['user_id']), commit=True)
     return jsonify({"status": "success"})
 
 @app.route('/check_requests')
 def check_requests():
-    did = session.get('user_id')
-    conn = get_db_connection()
-    res = conn.execute('''SELECT rides.id, users.username FROM rides JOIN users ON rides.rider_id = users.id WHERE rides.driver_id = ? AND rides.status = "pending"''', (did,)).fetchone()
-    conn.close()
+    res = query_db('''SELECT r.id, u.username FROM rides r JOIN users u ON r.rider_id = u.id 
+                      WHERE r.driver_id = ? AND r.status = "pending"''', (session['user_id'],), one=True)
     return jsonify({"ride_id": res[0], "rider_name": res[1]}) if res else jsonify({"ride_id": None})
 
 @app.route('/toggle_status', methods=['POST'])
 def toggle_status():
-    conn = get_db_connection()
-    user = conn.execute('SELECT is_online FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    user = query_db('SELECT is_online FROM users WHERE id = ?', (session['user_id'],), one=True)
     new_val = 0 if user['is_online'] == 1 else 1
-    conn.execute('UPDATE users SET is_online = ? WHERE id = ?', (new_val, session['user_id']))
-    conn.commit(); conn.close()
+    query_db('UPDATE users SET is_online = ? WHERE id = ?', (new_val, session['user_id']), commit=True)
     return jsonify({"is_online": new_val})
 
 @app.route('/logout')
@@ -185,5 +127,4 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-if __name__ == '__main__': 
-    app.run(debug=True)
+if __name__ == '__main__': app.run(debug=True, host='0.0.0.0', port=5000)

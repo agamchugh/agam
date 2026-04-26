@@ -8,32 +8,18 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
     <style>
-        body { background: #0b0b0b; color: #fff; font-family: 'Segoe UI', sans-serif; overflow-x: hidden; }
+        body { background: #0b0b0b; color: #fff; font-family: 'Segoe UI', sans-serif; }
         #map { height: 45vh; width: 100%; border-bottom: 3px solid #ff9800; }
-        .card { background: #1a1a1a !important; border: 1px solid #333; border-radius: 15px; margin-top: -20px; z-index: 999; position: relative; }
+        .card { background: #1a1a1a !important; border: 1px solid #333; border-radius: 15px; margin-top: -20px; z-index: 999; }
         .btn-warning { background: #ff9800; color: #000; font-weight: 800; border: none; }
         .otp-box { font-size: 2.5rem; color: #ff9800; background: #000; border: 1px solid #444; letter-spacing: 8px; font-weight: bold; }
         #distance-tag { position: absolute; top: 10px; right: 10px; z-index: 1000; background: rgba(0,0,0,0.8); padding: 5px 12px; border-radius: 20px; border: 1px solid #ff9800; font-size: 0.8rem; }
-        
-        /* New Request Modal for Driver */
-        #request-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 2000; display: none; align-items: center; justify-content: center; text-align: center; }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
 <div id="distance-tag" class="d-none text-warning">0.0 km away</div>
-
-<div id="request-overlay">
-    <div class="p-4 bg-dark border border-warning rounded-4 shadow-lg" style="width: 85%;">
-        <h3 class="text-warning mb-2">NEW RIDE!</h3>
-        <p class="mb-4">Rider <span id="req-rider-name" class="fw-bold text-white">---</span> wants a ride.</p>
-        <div class="d-flex gap-2">
-            <button class="btn btn-success flex-grow-1 py-3 fw-bold" onclick="respondRide(true)">ACCEPT</button>
-            <button class="btn btn-danger flex-grow-1 py-3 fw-bold" onclick="respondRide(false)">DECLINE</button>
-        </div>
-    </div>
-</div>
 
 <div class="container mt-3">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -47,9 +33,9 @@
             <button class="btn btn-warning w-100 py-3 shadow-lg" onclick="bookRide()">BOOK NOW</button>
         </div>
         <div id="ride-info" class="d-none card p-4 text-center shadow">
-            <small id="ride-status-text" class="text-muted fw-bold text-uppercase">Waiting for Driver...</small>
+            <small id="ride-status-text" class="text-muted fw-bold text-uppercase">Driver is Coming</small>
             <div id="otp-display" class="otp-box my-3 py-2">0000</div>
-            <button class="btn btn-outline-danger w-100" onclick="cancelRide()">Cancel Request</button>
+            <button class="btn btn-outline-danger w-100" onclick="cancelRide()">Cancel Ride</button>
         </div>
     </div>
     {% endif %}
@@ -64,7 +50,7 @@
                 <button class="btn btn-warning w-100" onclick="verifyOTP()">VERIFY & START</button>
             </div>
             <div id="finish-area" class="d-none">
-                <div class="alert alert-success fw-bold py-2 mb-3 text-center">TRIP IN PROGRESS</div>
+                <div class="alert alert-success fw-bold py-2 mb-3">TRIP IN PROGRESS</div>
                 <button class="btn btn-success w-100 py-3" onclick="completeRide()">COMPLETE TRIP</button>
             </div>
         </div>
@@ -82,7 +68,6 @@
     var routingControl = null;
     var isOnline = false;
     var currentLat, currentLon;
-    var activeRideId = null;
 
     function geo() {
         navigator.geolocation.getCurrentPosition(p => {
@@ -100,18 +85,8 @@
     function sync() {
         fetch('/get_active_ride').then(r => r.json()).then(data => {
             const role = "{{ role }}";
-            activeRideId = data.ride_id;
-
             if (data.status !== "none") {
-                if (role === 'driver' && data.status === 'pending') {
-                    document.getElementById('request-overlay').style.display = 'flex';
-                    document.getElementById('req-rider-name').innerText = data.name;
-                    return; // Stop UI sync while deciding
-                } else {
-                    if(document.getElementById('request-overlay')) document.getElementById('request-overlay').style.display = 'none';
-                }
-
-                if (data.lat) partnerMarker.setLatLng([data.lat, data.lon]).setOpacity(1);
+                partnerMarker.setLatLng([data.lat, data.lon]).setOpacity(1);
                 
                 // Show distance and blue line
                 document.getElementById('distance-tag').classList.remove('d-none');
@@ -132,23 +107,21 @@
                 if (role === 'rider') {
                     document.getElementById('book-area').classList.add('d-none');
                     document.getElementById('ride-info').classList.remove('d-none');
-                    document.getElementById('otp-display').innerText = data.status === 'pending' ? "WAIT" : data.otp;
-                    document.getElementById('ride-status-text').innerText = data.status === 'pending' ? "Finding Driver..." : (data.status === 'started' ? "Trip Started" : "Driver is Coming");
+                    document.getElementById('otp-display').innerText = data.otp;
+                    if(data.status === 'started') document.getElementById('ride-status-text').innerText = "Trip Started";
                 } else {
-                    if (data.status !== 'pending') {
-                        document.getElementById('job-card').classList.remove('d-none');
-                        document.getElementById('rider-name').innerText = data.name;
-                        if (data.status === 'started') {
-                            document.getElementById('verify-area').classList.add('d-none');
-                            document.getElementById('finish-area').classList.remove('d-none');
-                        }
+                    document.getElementById('job-card').classList.remove('d-none');
+                    document.getElementById('rider-name').innerText = data.name;
+                    if (data.status === 'started') {
+                        document.getElementById('verify-area').classList.add('d-none');
+                        document.getElementById('finish-area').classList.remove('d-none');
                     }
                 }
             } else {
+                // CLEAR UI IF NO RIDE
                 if (routingControl) { map.removeControl(routingControl); routingControl = null; }
                 partnerMarker.setOpacity(0);
                 document.getElementById('distance-tag').classList.add('d-none');
-                if(document.getElementById('request-overlay')) document.getElementById('request-overlay').style.display = 'none';
                 if (role === 'rider') {
                     document.getElementById('book-area').classList.remove('d-none');
                     document.getElementById('ride-info').classList.add('d-none');
@@ -157,15 +130,6 @@
                 }
             }
         });
-    }
-
-    function respondRide(accept) {
-        const url = accept ? '/accept_ride' : '/decline_ride';
-        fetch(url, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ride_id: activeRideId})
-        }).then(() => sync());
     }
 
     function toggleOnline() {
@@ -188,12 +152,12 @@
     function completeRide() {
         fetch('/complete_ride', {method: 'POST'}).then(() => {
             alert("Trip Finished!");
-            sync();
+            sync(); // This clears the UI via the sync logic
         });
     }
 
     setInterval(geo, 5000); geo();
-    setInterval(sync, 3000); sync();
+    setInterval(sync, 4000); sync();
 </script>
 </body>
 </html>

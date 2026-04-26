@@ -7,7 +7,8 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'agam_rickshaw_secure_key')
+# Using environment variables for security as seen in your Render settings
+app.secret_key = os.environ.get('SECRET_KEY', 'agam_master_key_778899')
 app.permanent_session_lifetime = timedelta(days=30)
 
 # --- MONGODB CONFIG ---
@@ -119,14 +120,14 @@ def get_active_ride():
             "lat": other_user['lat'] if other_user else 0,
             "lon": other_user['lon'] if other_user else 0,
             "status": ride['status'],
-            "otp": ride.get('otp') if session['role'] == 'rider' else None
+            "otp": str(ride.get('otp')) if session['role'] == 'rider' else None
         })
     return jsonify({"status": "none"})
 
 @app.route('/cancel_ride', methods=['POST'])
 def cancel_ride():
     if 'user_id' not in session: return jsonify({"status": "unauthorized"}), 401
-    # Only allow cancellation if the ride hasn't started yet
+    # Deletes any ride that hasn't officially started yet
     rides_coll.delete_many({
         "rider_id": session['user_id'], 
         "status": {"$in": ["pending", "accepted"]}
@@ -146,12 +147,15 @@ def accept_ride(ride_id):
 def verify_ride_otp():
     if 'user_id' not in session: return jsonify({"success": False}), 401
     data = request.json
+    # Clean and force string conversion for comparison
+    entered_otp = str(data.get('otp')).strip()
+    
     ride = rides_coll.find_one({"driver_id": session['user_id'], "status": "accepted"})
     
-    if ride and ride.get('otp') == str(data.get('otp')):
+    if ride and str(ride.get('otp')) == entered_otp:
         rides_coll.update_one({"_id": ride['_id']}, {"$set": {"status": "started"}})
         return jsonify({"success": True})
-    return jsonify({"success": False})
+    return jsonify({"success": False, "message": "Wrong OTP! Please check with the rider."})
 
 @app.route('/finish_trip', methods=['POST'])
 def finish_trip():

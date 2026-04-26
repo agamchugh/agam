@@ -75,7 +75,7 @@ def book_ride():
     user = query_db('SELECT lat, lon FROM users WHERE id = ?', (session['user_id'],), one=True)
     drivers = query_db('SELECT id, lat, lon FROM users WHERE role = "driver" AND is_online = 1')
     for d in drivers:
-        if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 1.5: # 1.5 KM RANGE
+        if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 10.5: # 1.5 KM RANGE
             query_db('DELETE FROM rides WHERE rider_id = ? AND status = "pending"', (session['user_id'],), commit=True)
             query_db('INSERT INTO rides (rider_id, driver_id, status) VALUES (?, ?, "pending")', (session['user_id'], d['id']), commit=True)
             return jsonify({"status": "success"})

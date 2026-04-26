@@ -6,7 +6,6 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 app = Flask(__name__)
 app.secret_key = 'agam_rickshaw_secure_key'
 
-# --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
@@ -30,15 +29,12 @@ def init_db():
 
 init_db()
 
-# Distance Math
 def get_distance(lat1, lon1, lat2, lon2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
-
-# --- ROUTES ---
 
 @app.route('/')
 def home():
@@ -86,7 +82,19 @@ def login():
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
-    return render_template('dashboard.html', username=session['username'], email=session['email'], role=session['role'], is_admin=session.get('is_admin'))
+    return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
+
+@app.route('/toggle_status', methods=['POST'])
+def toggle_status():
+    if 'user_id' not in session: return jsonify({"status": "error"}), 401
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT is_online FROM users WHERE id = ?', (session['user_id'],))
+    new_status = 0 if cursor.fetchone()[0] == 1 else 1
+    cursor.execute('UPDATE users SET is_online = ? WHERE id = ?', (new_status, session['user_id']))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "is_online": new_status})
 
 @app.route('/update_location', methods=['POST'])
 def update_location():
@@ -94,7 +102,7 @@ def update_location():
     data = request.json
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
-    cursor.execute('UPDATE users SET lat = ?, lon = ?, is_online = 1 WHERE id = ?', 
+    cursor.execute('UPDATE users SET lat = ?, lon = ? WHERE id = ?', 
                    (data.get('latitude'), data.get('longitude'), session['user_id']))
     conn.commit()
     conn.close()
@@ -112,7 +120,7 @@ def book_ride():
     
     best_driver = None
     for d_id, d_lat, d_lon in drivers:
-        if get_distance(r_lat, r_lon, d_lat, d_lon) <= 1.5:
+        if get_distance(r_lat, r_lon, d_lat, d_lon) <= 2.5: # 2.5km range
             best_driver = d_id
             break
             
@@ -122,7 +130,7 @@ def book_ride():
         conn.close()
         return jsonify({"status": "success", "message": "Driver Found! Request sent."})
     conn.close()
-    return jsonify({"status": "none", "message": "No autos nearby (1.5km)."})
+    return jsonify({"status": "none", "message": "No autos nearby."})
 
 @app.route('/check_requests')
 def check_requests():
@@ -134,19 +142,27 @@ def check_requests():
     conn.close()
     return jsonify({"ride_id": res[0], "rider_name": res[1]}) if res else jsonify({"ride_id": None})
 
-@app.route('/admin')
-def admin():
-    if session.get('email') != 'agamchugh153@gmail.com': return "Denied"
+@app.route('/accept_ride/<int:ride_id>', methods=['POST'])
+def accept_ride(ride_id):
     conn = sqlite3.connect('users.db')
-    users = conn.execute('SELECT id, username, email, mobile, role FROM users').fetchall()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE rides SET status = "accepted" WHERE id = ?', (ride_id,))
+    cursor.execute('SELECT users.username, users.mobile FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.id = ?', (ride_id,))
+    d_info = cursor.fetchone()
+    conn.commit()
     conn.close()
-    return render_template('admin.html', users=users)
+    return jsonify({"status": "success", "driver_name": d_info[0], "driver_mobile": d_info[1]})
 
-@app.route('/delete/<int:id>')
-def delete_user(id):
-    if session.get('email') != 'agamchugh153@gmail.com': return "Denied"
-    conn = sqlite3.connect('users.db'); conn.execute('DELETE FROM users WHERE id = ?', (id,)); conn.commit(); conn.close()
-    return redirect(url_for('admin'))
+@app.route('/ride_status')
+def ride_status():
+    rider_id = session.get('user_id')
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    cursor.execute('''SELECT rides.status, users.username, users.mobile FROM rides JOIN users ON rides.driver_id = users.id 
+                      WHERE rides.rider_id = ? AND rides.status = "accepted" ORDER BY rides.id DESC LIMIT 1''', (rider_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return jsonify({"status": res[0], "driver_name": res[1], "driver_phone": res[2]}) if res else jsonify({"status": "searching"})
 
 @app.route('/logout')
 def logout():

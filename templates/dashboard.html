@@ -11,7 +11,7 @@
         #map { height: 40vh; width: 100%; border-bottom: 3px solid #ff9800; }
         .card { background: #1a1a1a !important; border: 1px solid #333; border-radius: 15px; margin-top: -20px; z-index: 999; }
         .btn-warning { background: #ff9800; color: #000; font-weight: 800; border: none; }
-        .otp-box { font-size: 2.5rem; color: #ff9800; background: #000; border: 1px solid #444; letter-spacing: 8px; }
+        .otp-box { font-size: 2.5rem; color: #ff9800; background: #000; border: 1px solid #444; letter-spacing: 8px; font-weight: bold; }
         .admin-panel { background: #000; border-top: 1px solid #ff9800; padding: 20px; margin-top: 50px; }
     </style>
 </head>
@@ -31,7 +31,7 @@
             <button class="btn btn-warning w-100 py-3 shadow-lg" onclick="bookRide()">BOOK NOW</button>
         </div>
         <div id="ride-info" class="d-none card p-4 text-center shadow">
-            <small class="text-muted fw-bold">DRIVER IS COMING • OTP</small>
+            <small id="ride-status-text" class="text-muted fw-bold">DRIVER IS COMING • OTP</small>
             <div id="otp-display" class="otp-box my-3 py-2">0000</div>
             <button class="btn btn-outline-secondary w-100" onclick="cancelRide()">Cancel Ride</button>
         </div>
@@ -48,8 +48,8 @@
                 <button class="btn btn-warning w-100" onclick="verifyOTP()">VERIFY & START</button>
             </div>
             <div id="finish-area" class="d-none">
-                <div class="alert alert-success">TRIP IN PROGRESS</div>
-                <button class="btn btn-success w-100" onclick="location.reload()">COMPLETE TRIP</button>
+                <div class="alert alert-success fw-bold">TRIP IN PROGRESS</div>
+                <button class="btn btn-success w-100 py-3" onclick="completeRide()">COMPLETE TRIP</button>
             </div>
         </div>
     </div>
@@ -57,9 +57,8 @@
 
     {% if is_admin %}
     <div class="admin-panel shadow">
-        <h5 class="text-warning mb-3">SYSTEM ADMIN</h5>
-        <button class="btn btn-danger w-100 mb-3" onclick="resetSystem()">PURGE ALL RIDES</button>
-        <div id="admin-user-list" class="small">Loading system data...</div>
+        <h5 class="text-warning mb-3">ADMIN TOOLS</h5>
+        <button class="btn btn-danger btn-sm w-100" onclick="resetSystem()">PURGE ALL DATA</button>
     </div>
     {% endif %}
 </div>
@@ -70,7 +69,8 @@
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
     var myMarker = L.marker([0,0]).addTo(map);
     var partnerMarker = L.marker([0,0], {opacity: 0}).addTo(map);
-    var online = false;
+    
+    var isOnline = false;
 
     function geo() {
         navigator.geolocation.getCurrentPosition(p => {
@@ -80,61 +80,75 @@
             fetch('/update_location', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({latitude, longitude, online: online})
+                body: JSON.stringify({latitude, longitude, online: isOnline})
             });
         });
     }
 
     function sync() {
         fetch('/get_active_ride').then(r => r.json()).then(data => {
+            const role = "{{ role }}";
             if (data.status !== "none") {
                 if (data.lat) partnerMarker.setLatLng([data.lat, data.lon]).setOpacity(1);
-                {% if role == 'rider' %}
+                
+                if (role === 'rider') {
                     document.getElementById('book-area').classList.add('d-none');
                     document.getElementById('ride-info').classList.remove('d-none');
                     document.getElementById('otp-display').innerText = data.otp;
-                {% else %}
+                    if(data.status === 'started') document.getElementById('ride-status-text').innerText = "TRIP STARTED";
+                } else {
                     document.getElementById('job-card').classList.remove('d-none');
                     document.getElementById('rider-name').innerText = data.name;
                     if (data.status === 'started') {
                         document.getElementById('verify-area').classList.add('d-none');
                         document.getElementById('finish-area').classList.remove('d-none');
+                    } else {
+                        document.getElementById('verify-area').classList.remove('d-none');
+                        document.getElementById('finish-area').classList.add('d-none');
                     }
-                {% endif %}
+                }
             } else {
                 partnerMarker.setOpacity(0);
-                if (document.getElementById('book-area')) document.getElementById('book-area').classList.remove('d-none');
-                if (document.getElementById('ride-info')) document.getElementById('ride-info').classList.add('d-none');
-                if (document.getElementById('job-card')) document.getElementById('job-card').classList.add('d-none');
+                if (role === 'rider') {
+                    document.getElementById('book-area').classList.remove('d-none');
+                    document.getElementById('ride-info').classList.add('d-none');
+                } else {
+                    document.getElementById('job-card').classList.add('d-none');
+                }
             }
         });
     }
 
     function toggleOnline() {
-        online = !online;
+        isOnline = !isOnline;
         const b = document.getElementById('online-btn');
-        b.innerText = online ? "OFFLINE" : "ONLINE";
-        b.className = online ? "btn btn-danger w-100 py-3 mb-3" : "btn btn-success w-100 py-3 mb-3";
+        b.innerText = isOnline ? "GO OFFLINE" : "GO ONLINE";
+        b.className = isOnline ? "btn btn-danger w-100 py-3 mb-3" : "btn btn-success w-100 py-3 mb-3";
+        geo();
     }
 
     function bookRide() { fetch('/book_ride', {method: 'POST'}).then(() => sync()); }
+    
     function verifyOTP() {
         const otp = document.getElementById('otp-input').value;
-        fetch('/verify_ride_otp', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({otp})})
-        .then(r => r.json()).then(d => d.success ? sync() : alert("INVALID OTP"));
+        fetch('/verify_ride_otp', {
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({otp})
+        }).then(r => r.json()).then(d => d.success ? sync() : alert("WRONG OTP"));
     }
+
+    function completeRide() {
+        fetch('/complete_ride', {method: 'POST'}).then(() => {
+            alert("Trip Finished!");
+            location.reload();
+        });
+    }
+
     function resetSystem() { if(confirm("Clear all?")) fetch('/admin_reset', {method: 'POST'}).then(() => location.reload()); }
 
-    {% if is_admin %}
-    setInterval(() => {
-        fetch('/admin_data').then(r => r.json()).then(d => {
-            document.getElementById('admin-user-list').innerHTML = d.users.map(u => `<div>${u.username} - ${u.role} (${u.is_online ? 'ON' : 'OFF'})</div>`).join('');
-        });
-    }, 5000);
-    {% endif %}
-
     setInterval(geo, 5000); geo();
-    setInterval(sync, 4000); sync();
+    setInterval(sync, 3000); sync();
 </script>
 </body>
 </html>

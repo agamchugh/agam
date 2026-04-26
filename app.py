@@ -59,12 +59,16 @@ def book_ride():
     driver = users_coll.find_one({"role": "driver", "is_online": True})
     if not driver:
         return jsonify({"status": "no_drivers"})
-    otp = str(random.randint(1000, 9999))
+    
+    # Check if rider already has a pending or active ride
+    existing = rides_coll.find_one({"rider_id": session['user_id'], "status": {"$in": ["pending", "accepted", "started"]}})
+    if existing: return jsonify({"status": "already_booked"})
+
     rides_coll.insert_one({
         "rider_id": session['user_id'],
         "driver_id": str(driver['_id']),
-        "otp": otp,
-        "status": "accepted"
+        "otp": str(random.randint(1000, 9999)),
+        "status": "pending"  # Initial state is now pending
     })
     return jsonify({"status": "success"})
 
@@ -73,12 +77,15 @@ def get_active_ride():
     uid = session.get('user_id')
     role = session.get('role')
     if not uid: return jsonify({"status": "none"})
+    
     query = {"rider_id": uid} if role == "rider" else {"driver_id": uid}
-    ride = rides_coll.find_one({**query, "status": {"$in": ["accepted", "started"]}}, sort=[("_id", -1)])
+    ride = rides_coll.find_one({**query, "status": {"$in": ["pending", "accepted", "started"]}}, sort=[("_id", -1)])
+    
     if ride:
         other_id = ride['driver_id'] if role == 'rider' else ride['rider_id']
         other = users_coll.find_one({"_id": ObjectId(other_id)})
         return jsonify({
+            "ride_id": str(ride['_id']),
             "status": ride['status'],
             "name": other['username'] if other else "Partner",
             "otp": ride['otp'],
@@ -86,6 +93,19 @@ def get_active_ride():
             "lon": other.get('lon') if other else None
         })
     return jsonify({"status": "none"})
+
+@app.route('/accept_ride', methods=['POST'])
+def accept():
+    ride_id = request.json.get('ride_id')
+    rides_coll.update_one({"_id": ObjectId(ride_id)}, {"$set": {"status": "accepted"}})
+    return jsonify({"status": "success"})
+
+@app.route('/decline_ride', methods=['POST'])
+def decline():
+    ride_id = request.json.get('ride_id')
+    # When declined, we delete the request so rider can try again
+    rides_coll.delete_one({"_id": ObjectId(ride_id)})
+    return jsonify({"status": "success"})
 
 @app.route('/verify_ride_otp', methods=['POST'])
 def verify_otp():
@@ -103,7 +123,7 @@ def complete():
 
 @app.route('/cancel_ride', methods=['POST'])
 def cancel():
-    rides_coll.delete_many({"rider_id": session['user_id'], "status": "accepted"})
+    rides_coll.delete_many({"rider_id": session['user_id'], "status": {"$in": ["pending", "accepted"]}})
     return jsonify({"status": "success"})
 
 @app.route('/admin_reset', methods=['POST'])

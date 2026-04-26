@@ -5,177 +5,161 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rickshaw Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background-color: #121212; color: white; font-family: sans-serif; }
-        .card { border-radius: 15px; }
-        .btn-warning { background-color: #ff9800; border: none; color: black; }
+        body { background-color: #121212; color: white; font-family: sans-serif; overflow-x: hidden; }
+        #map { height: 40vh; width: 100%; border-bottom: 2px solid #ff9800; }
+        
+        /* Orange & Black Theme */
+        .card { border-radius: 15px; background-color: #1e1e1e !important; }
+        .btn-warning { background-color: #ff9800; border: none; color: black; font-weight: bold; }
         .btn-warning:hover { background-color: #e68a00; }
         .text-warning { color: #ff9800 !important; }
         .border-warning { border-color: #ff9800 !important; }
-        .badge.bg-warning { background-color: #ff9800 !important; color: black; }
-        .form-control:focus { box-shadow: 0 0 0 0.25rem rgba(255, 152, 0, 0.25); border-color: #ff9800; }
+        
+        .nav-header { background: #000; border-bottom: 1px solid #333; padding: 10px 15px; }
+        .status-badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 5px; }
     </style>
 </head>
 <body>
 
-<nav class="navbar navbar-dark bg-dark border-bottom border-warning mb-4">
-    <div class="container">
-        <span class="navbar-brand mb-0 h1">Hi, <span class="text-warning">{{ username }}</span></span>
-        <div class="d-flex align-items-center">
-            {% if role == 'driver' %}
-            <span id="online-indicator" class="badge bg-secondary me-3">OFFLINE</span>
-            {% endif %}
-            <a href="/logout" class="text-muted small text-decoration-none">Logout</a>
-        </div>
-    </div>
-</nav>
+<div id="map"></div>
 
-<div class="container">
+<div class="nav-header d-flex justify-content-between align-items-center">
+    <div>Hi, <span class="text-warning fw-bold">{{ username }}</span></div>
+    <div class="d-flex align-items-center">
+        {% if role == 'driver' %}
+        <span id="online-tag" class="status-badge bg-secondary me-2">OFFLINE</span>
+        {% endif %}
+        <a href="/logout" class="text-muted small text-decoration-none">Logout</a>
+    </div>
+</div>
+
+<div class="container mt-3">
     <div id="rider-ui" class="{% if role != 'rider' %}d-none{% endif %}">
         <div id="booking-area">
-            <button class="btn btn-warning w-100 py-3 mb-3 fw-bold shadow-sm" onclick="bookRide()">
-                BOOK A RICKSHAW
-            </button>
+            <button class="btn btn-warning w-100 py-3 mb-3 shadow" onclick="bookRide()">BOOK A RICKSHAW</button>
         </div>
 
         <div id="active-ride-area" class="d-none">
-            <div class="card bg-dark text-white p-4 border-warning shadow-lg">
-                <p class="mb-2 text-center text-muted small">GIVE THIS OTP TO DRIVER:</p>
-                <div id="otp-display" class="display-4 text-center text-warning font-monospace fw-bold py-2 mb-3" 
-                     style="background: rgba(0,0,0,0.4); border-radius: 10px; letter-spacing: 5px;">----</div>
-                
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <span class="text-muted">Status:</span>
-                    <span id="ride-status" class="badge bg-warning">PENDING</span>
-                </div>
-                
-                <button class="btn btn-outline-danger w-100" onclick="cancelRide()">CANCEL RIDE</button>
+            <div class="card p-3 border-warning border-start-4">
+                <p class="mb-1 text-center text-muted small">GIVE THIS OTP TO DRIVER:</p>
+                <div id="otp-display" class="display-5 text-center text-warning fw-bold py-2" 
+                     style="background: #000; border-radius: 10px;">----</div>
+                <div id="ride-status" class="badge bg-warning text-dark w-100 py-2 mt-2">Calculating...</div>
+                <button class="btn btn-sm btn-outline-danger w-100 mt-3" onclick="cancelRide()">CANCEL RIDE</button>
             </div>
         </div>
     </div>
 
     <div id="driver-ui" class="{% if role != 'driver' %}d-none{% endif %}">
-        <button id="status-btn" class="btn btn-success w-100 py-3 mb-4 fw-bold shadow-sm" onclick="toggleStatus()">
-            GO ONLINE
-        </button>
+        <button id="status-btn" class="btn btn-success w-100 py-3 mb-3" onclick="toggleStatus()">GO ONLINE</button>
         
         <div id="driver-active-area" class="d-none">
-            <div class="card bg-dark text-white p-4 border-warning shadow-lg">
+            <div class="card p-3 border-warning">
                 <h6 class="text-warning small mb-3">NAVIGATING TO RIDER: <span id="rider-name" class="text-white">---</span></h6>
                 
                 <div id="otp-input-section">
-                    <label class="small text-muted mb-2">Enter Rider's OTP</label>
-                    <input type="number" id="otp-input" class="form-control form-control-lg text-center mb-3 bg-dark text-white border-secondary" placeholder="0000">
-                    <button class="btn btn-warning w-100 fw-bold py-2" onclick="verifyOTP()">START TRIP</button>
+                    <input type="number" id="otp-input" class="form-control form-control-lg text-center mb-2 bg-dark text-white border-secondary" placeholder="Enter OTP">
+                    <button class="btn btn-warning w-100 fw-bold" onclick="verifyOTP()">START TRIP</button>
                 </div>
 
                 <div id="finish-section" class="d-none">
-                    <button class="btn btn-success w-100 py-3 fw-bold shadow" onclick="finishTrip()">FINISH TRIP</button>
+                    <button class="btn btn-success w-100 py-3 fw-bold" onclick="finishTrip()">FINISH TRIP</button>
                 </div>
-
-                <button class="btn btn-sm btn-outline-danger w-100 mt-3" onclick="cancelRide()">CANCEL / REJECT</button>
+                <button class="btn btn-sm btn-outline-danger w-100 mt-2" onclick="cancelRide()">CANCEL / REJECT</button>
             </div>
         </div>
     </div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// Logic to keep the dashboard synced with the server
-function sync() {
-    fetch('/get_active_ride')
-    .then(r => r.json())
-    .then(data => {
-        const isRider = "{{ role }}" === "rider";
-        
-        if (data.status !== "none") {
-            if (isRider) {
-                document.getElementById('booking-area').classList.add('d-none');
-                document.getElementById('active-ride-area').classList.remove('d-none');
-                document.getElementById('otp-display').innerText = data.otp || "----";
-                document.getElementById('ride-status').innerText = data.status.toUpperCase();
-            } else {
-                document.getElementById('driver-active-area').classList.remove('d-none');
-                document.getElementById('rider-name').innerText = data.name;
-                
-                // Switch between OTP entry and Finish button based on status
-                if (data.status === 'started') {
-                    document.getElementById('otp-input-section').classList.add('d-none');
-                    document.getElementById('finish-section').classList.remove('d-none');
-                } else {
-                    document.getElementById('otp-input-section').classList.remove('d-none');
-                    document.getElementById('finish-section').classList.add('d-none');
-                }
-            }
-        } else {
-            // No active ride: Reset UI
-            if (isRider) {
-                document.getElementById('booking-area').classList.remove('d-none');
-                document.getElementById('active-ride-area').classList.add('d-none');
-            } else {
-                document.getElementById('driver-active-area').classList.add('d-none');
-            }
-        }
-    });
-}
+    // 1. Initialize Map
+    var map = L.map('map').setView([0, 0], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    var userMarker = L.marker([0, 0]).addTo(map);
+    var partnerMarker = L.marker([0, 0], {opacity: 0}).addTo(map);
 
-function toggleStatus() {
-    fetch('/toggle_status', { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-        const btn = document.getElementById('status-btn');
-        const indicator = document.getElementById('online-indicator');
-        if (data.is_online) {
-            btn.innerText = "GO OFFLINE";
-            btn.className = "btn btn-danger w-100 py-3 mb-4 fw-bold shadow-sm";
-            indicator.className = "badge bg-success me-3";
-            indicator.innerText = "ONLINE";
-        } else {
-            btn.innerText = "GO ONLINE";
-            btn.className = "btn btn-success w-100 py-3 mb-4 fw-bold shadow-sm";
-            indicator.className = "badge bg-secondary me-3";
-            indicator.innerText = "OFFLINE";
-        }
-    });
-}
-
-function bookRide() {
-    fetch('/book_ride', { method: 'POST' })
-    .then(r => r.json())
-    .then(data => {
-        if (data.status === 'success') sync();
-        else alert("No drivers nearby!");
-    });
-}
-
-function verifyOTP() {
-    const otp = document.getElementById('otp-input').value;
-    fetch('/verify_ride_otp', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ otp: otp })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) sync();
-        else alert(data.message);
-    });
-}
-
-function cancelRide() {
-    if (confirm("Cancel this ride?")) {
-        fetch('/cancel_ride', { method: 'POST' }).then(() => sync());
+    // 2. Location Tracking
+    function updateLocation() {
+        navigator.geolocation.getCurrentPosition(pos => {
+            const { latitude, longitude } = pos.coords;
+            userMarker.setLatLng([latitude, longitude]);
+            map.setView([latitude, longitude]);
+            
+            fetch('/update_location', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ latitude, longitude })
+            });
+        });
     }
-}
+    setInterval(updateLocation, 5000);
+    updateLocation();
 
-function finishTrip() {
-    fetch('/finish_trip', { method: 'POST' }).then(() => location.reload());
-}
+    // 3. Sync Logic (Matches your screenshot requirements)
+    function sync() {
+        fetch('/get_active_ride')
+        .then(r => r.json())
+        .then(data => {
+            const role = "{{ role }}";
+            if (data.status !== "none") {
+                // Show partner on map
+                if (data.lat && data.lon) {
+                    partnerMarker.setLatLng([data.lat, data.lon]).setOpacity(1);
+                }
 
-// Polling interval
-setInterval(sync, 4000);
-sync(); // Initial check
+                if (role === "rider") {
+                    document.getElementById('booking-area').classList.add('d-none');
+                    document.getElementById('active-ride-area').classList.remove('d-none');
+                    document.getElementById('otp-display').innerText = data.otp || "----";
+                    document.getElementById('ride-status').innerText = "STATUS: " + data.status.toUpperCase();
+                } else {
+                    document.getElementById('driver-active-area').classList.remove('d-none');
+                    document.getElementById('rider-name').innerText = data.name;
+                    if (data.status === 'started') {
+                        document.getElementById('otp-input-section').classList.add('d-none');
+                        document.getElementById('finish-section').classList.remove('d-none');
+                    }
+                }
+            } else {
+                partnerMarker.setOpacity(0);
+                document.getElementById('booking-area')?.classList.remove('d-none');
+                document.getElementById('active-ride-area')?.classList.add('d-none');
+                document.getElementById('driver-active-area')?.classList.add('d-none');
+            }
+        });
+    }
+
+    // 4. Action Functions
+    function toggleStatus() {
+        fetch('/toggle_status', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            const btn = document.getElementById('status-btn');
+            const tag = document.getElementById('online-tag');
+            if (data.is_online) {
+                btn.innerText = "GO OFFLINE"; btn.className = "btn btn-danger w-100 py-3 mb-3";
+                tag.innerText = "ONLINE"; tag.className = "status-badge bg-success me-2";
+            } else {
+                btn.innerText = "GO ONLINE"; btn.className = "btn btn-success w-100 py-3 mb-3";
+                tag.innerText = "OFFLINE"; tag.className = "status-badge bg-secondary me-2";
+            }
+        });
+    }
+
+    function bookRide() { fetch('/book_ride', { method: 'POST' }).then(r => r.json()).then(d => d.status === 'success' ? sync() : alert("No drivers nearby!")); }
+    function verifyOTP() {
+        const otp = document.getElementById('otp-input').value;
+        fetch('/verify_ride_otp', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ otp }) })
+        .then(r => r.json()).then(d => d.success ? sync() : alert(d.message));
+    }
+    function cancelRide() { if(confirm("Cancel?")) fetch('/cancel_ride', {method: 'POST'}).then(() => sync()); }
+    function finishTrip() { fetch('/finish_trip', {method: 'POST'}).then(() => location.reload()); }
+
+    setInterval(sync, 4000);
+    sync();
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

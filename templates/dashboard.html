@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { background: #121212; color: white; font-family: sans-serif; overflow: hidden; height: 100vh; }
-        #map { height: 65%; width: 100%; border-bottom: 4px solid #ffc107; }
-        .ui-container { height: 35%; padding: 15px; background: #1e1e26; border-radius: 30px 30px 0 0; position: relative; z-index: 1000; box-shadow: 0 -10px 20px rgba(0,0,0,0.5); }
+        #map { height: 60%; width: 100%; border-bottom: 4px solid #ffc107; }
+        .ui-container { height: 40%; padding: 15px; background: #1e1e26; border-radius: 30px 30px 0 0; position: relative; z-index: 1000; box-shadow: 0 -10px 20px rgba(0,0,0,0.5); }
         .btn-main { background: #ffc107; color: black; font-weight: bold; padding: 12px; border-radius: 15px; width: 100%; border: none; font-size: 1.1rem; }
         .driver-marker { filter: hue-rotate(140deg); }
         .status-box { background: #2a2a35; padding: 12px; border-radius: 15px; margin-top: 10px; border-left: 4px solid #ffc107; }
@@ -17,32 +17,31 @@
 </head>
 <body>
     <div id="map"></div>
-
     <div class="ui-container">
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">Welcome, <span class="text-warning">{{ username }}</span></h6>
+            <h6 class="mb-0">Hi, <span class="text-warning">{{ username }}</span></h6>
             <span id="stat-badge" class="badge bg-success">ONLINE</span>
         </div>
 
         {% if role == 'rider' %}
-        <div id="rider-controls">
-            <button id="bookBtn" class="btn-main shadow">📍 REQUEST RICKSHAW</button>
-            
+        <div id="rider-ui">
+            <button id="bookBtn" class="btn-main">📍 REQUEST RICKSHAW</button>
             <div id="ride-info" class="status-box d-none">
                 <div id="msg" class="small text-secondary">Searching...</div>
                 <div id="drv-name" class="fw-bold text-warning"></div>
                 <div id="dist-tag" class="badge bg-warning text-dark mt-1"></div>
-                <button id="cancelBtn" class="btn btn-outline-danger btn-sm w-100 mt-2">CANCEL RIDE</button>
+                <button id="cancelBtn" class="btn btn-outline-danger btn-sm w-100 mt-2">CANCEL</button>
             </div>
         </div>
         {% else %}
-        <div id="driver-controls">
+        <div id="driver-ui">
             <button id="offlineBtn" class="btn-main" style="background:#dc3545; color:white;">GO OFFLINE</button>
-            
-            <div id="req-box" class="status-box d-none bg-success text-white">
-                <p class="mb-1">New Trip Request from <span id="rider-name"></span></p>
-                <button id="acceptBtn" class="btn btn-light btn-sm w-100 fw-bold mb-1">ACCEPT</button>
-                <button id="drvCancelBtn" class="btn btn-danger btn-sm w-100">DECLINE</button>
+            <div id="req-box" class="status-box d-none" style="background:#28a745; color:white; border:none;">
+                <p class="mb-1">New Request: <span id="rider-name" class="fw-bold"></span></p>
+                <div class="d-flex gap-2">
+                    <button id="acceptBtn" class="btn btn-light btn-sm fw-bold flex-grow-1">ACCEPT</button>
+                    <button id="drvCancelBtn" class="btn btn-danger btn-sm">DECLINE</button>
+                </div>
             </div>
         </div>
         {% endif %}
@@ -53,7 +52,6 @@
     <script>
         var map = L.map('map', {zoomControl: false}).setView([20.59, 78.96], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        
         var uMarker = L.marker([0,0]).addTo(map);
         var drvMarkers = {};
         var liveIcon = L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', className: 'driver-marker'});
@@ -62,7 +60,7 @@
         function calcDist(lat1, lon1, lat2, lon2) {
             var R = 6371; var dLat = (lat2-lat1)*Math.PI/180; var dLon = (lon2-lon1)*Math.PI/180;
             var a = Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
-            return (R * 2 * Math.atan2(math.sqrt(a), math.sqrt(1-a))).toFixed(2);
+            return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(2);
         }
 
         function sync() {
@@ -70,11 +68,10 @@
                 let lt = p.coords.latitude, ln = p.coords.longitude;
                 uMarker.setLatLng([lt, ln]); map.panTo([lt, ln]);
                 fetch('/update_location', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({latitude:lt, longitude:ln})});
-
                 if("{{role}}" === "rider") {
                     fetch('/get_nearby_drivers').then(r => r.json()).then(ds => {
                         ds.forEach(d => {
-                            if(!drvMarkers[d.name]) drvMarkers[d.name] = L.marker([d.lat, d.lon], {icon: liveIcon}).addTo(map).bindTooltip(d.name);
+                            if(!drvMarkers[d.name]) drvMarkers[d.name] = L.marker([d.lat, d.lon], {icon: liveIcon}).addTo(map);
                             else drvMarkers[d.name].setLatLng([d.lat, d.lon]);
                         });
                     });
@@ -83,53 +80,39 @@
         }
         setInterval(sync, 5000); sync();
 
-        // RIDER LOGIC
-        if(document.getElementById('bookBtn')) {
-            document.getElementById('bookBtn').onclick = function() {
-                this.classList.add('d-none'); document.getElementById('ride-info').classList.remove('d-none');
-                fetch('/book_ride', {method:'POST'});
-                
-                let check = setInterval(() => {
-                    fetch('/ride_status').then(r => r.json()).then(d => {
-                        if(d.status === 'accepted') {
-                            document.getElementById('msg').innerText = "✅ DRIVER ARRIVING";
-                            document.getElementById('drv-name').innerText = d.name + " (" + d.phone + ")";
-                            let dist = calcDist(uMarker.getLatLng().lat, uMarker.getLatLng().lng, d.lat, d.lon);
-                            document.getElementById('dist-tag').innerText = dist + " km away";
-                            activeDrv.setLatLng([d.lat, d.lon]).setOpacity(1);
-                        } else if(d.status === 'cancelled') {
-                            alert("Ride was cancelled."); location.reload();
-                        }
-                    });
-                }, 4000);
-            };
-            document.getElementById('cancelBtn').onclick = function() {
-                fetch('/cancel_ride', {method:'POST'}).then(() => location.reload());
-            };
-        }
-
-        // DRIVER LOGIC
-        {% if role == 'driver' %}
+        {% if role == 'rider' %}
+        document.getElementById('bookBtn').onclick = function() {
+            this.classList.add('d-none'); document.getElementById('ride-info').classList.remove('d-none');
+            fetch('/book_ride', {method:'POST'});
+            setInterval(() => {
+                fetch('/ride_status').then(r => r.json()).then(d => {
+                    if(d.status === 'accepted') {
+                        document.getElementById('msg').innerText = "✅ DRIVER COMING";
+                        document.getElementById('drv-name').innerText = d.name + " (" + d.phone + ")";
+                        let dist = calcDist(uMarker.getLatLng().lat, uMarker.getLatLng().lng, d.lat, d.lon);
+                        document.getElementById('dist-tag').innerText = dist + " km away";
+                        activeDrv.setLatLng([d.lat, d.lon]).setOpacity(1);
+                    } else if(d.status === 'cancelled') { location.reload(); }
+                });
+            }, 3000);
+        };
+        document.getElementById('cancelBtn').onclick = () => fetch('/cancel_ride', {method:'POST'}).then(() => location.reload());
+        {% else %}
         let curR = null;
         setInterval(() => {
+            if(curR) return;
             fetch('/check_requests').then(r => r.json()).then(d => {
-                if(d.ride_id && !curR) {
+                if(d.ride_id) {
                     curR = d.ride_id; document.getElementById('rider-name').innerText = d.rider_name;
                     document.getElementById('req-box').classList.remove('d-none');
                 }
             });
-        }, 5000);
-
-        document.getElementById('acceptBtn').onclick = function() {
-            fetch('/accept_ride/'+curR, {method:'POST'}).then(() => {
-                alert("Ride Started!"); document.getElementById('req-box').classList.add('d-none');
-            });
-        };
-        document.getElementById('drvCancelBtn').onclick = function() {
-            fetch('/cancel_ride', {method:'POST'}).then(() => {
-                document.getElementById('req-box').classList.add('d-none'); curR = null;
-            });
-        };
+        }, 3000);
+        document.getElementById('acceptBtn').onclick = () => fetch('/accept_ride/'+curR, {method:'POST'}).then(() => {
+            document.getElementById('req-box').style.background = "#007bff";
+            document.getElementById('acceptBtn').classList.add('d-none');
+        });
+        document.getElementById('drvCancelBtn').onclick = () => fetch('/cancel_ride', {method:'POST'}).then(() => location.reload());
         document.getElementById('offlineBtn').onclick = function() {
             fetch('/toggle_status', {method:'POST'}).then(r => r.json()).then(d => {
                 let b = document.getElementById('stat-badge');

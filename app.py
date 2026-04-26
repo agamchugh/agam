@@ -1,6 +1,6 @@
 import os
 import math
-import random  # Added for OTP generation
+import random 
 from datetime import timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from pymongo import MongoClient
@@ -96,7 +96,7 @@ def book_ride():
             rides_coll.insert_one({
                 "rider_id": session['user_id'],
                 "driver_id": str(d['_id']),
-                "otp": otp_code,  # Store OTP in DB
+                "otp": otp_code, 
                 "status": "pending"
             })
             return jsonify({"status": "success"})
@@ -104,22 +104,26 @@ def book_ride():
 
 @app.route('/get_active_ride')
 def get_active_ride():
+    if 'user_id' not in session: return jsonify({"status": "none"})
     uid = session['user_id']
-    # Added "started" to the status check
+    
+    # Check for any ride that isn't pending (Accepted, Started, or Completed)
     ride = rides_coll.find_one({
         "$or": [{"rider_id": uid}, {"driver_id": uid}],
         "status": {"$in": ["accepted", "started", "completed"]}
     }, sort=[("_id", -1)])
     
     if ride:
+        other_role = 'driver' if session['role'] == 'rider' else 'rider'
         other_id = ride['driver_id'] if session['role'] == 'rider' else ride['rider_id']
         other_user = users_coll.find_one({"_id": ObjectId(other_id)})
+        
         return jsonify({
-            "name": other_user['username'],
-            "lat": other_user['lat'],
-            "lon": other_user['lon'],
+            "name": other_user['username'] if other_user else "Unknown",
+            "lat": other_user['lat'] if other_user else 0,
+            "lon": other_user['lon'] if other_user else 0,
             "status": ride['status'],
-            "otp": ride.get('otp') if session['role'] == 'rider' else None # Only rider sees OTP
+            "otp": ride.get('otp') if session['role'] == 'rider' else None # Rider gets the OTP to show
         })
     return jsonify({"status": "none"})
 
@@ -127,34 +131,38 @@ def get_active_ride():
 def accept_ride(ride_id):
     ride = rides_coll.find_one({"_id": ObjectId(ride_id)})
     if ride:
+        # Clear other potential pending requests for this specific rider
         rides_coll.delete_many({"rider_id": ride['rider_id'], "status": "pending", "_id": {"$ne": ObjectId(ride_id)}})
+        # Set status to accepted so the dashboards update
         rides_coll.update_one({"_id": ObjectId(ride_id)}, {"$set": {"status": "accepted"}})
-    return jsonify({"status": "success"})
+        return jsonify({"status": "success"})
+    return jsonify({"status": "error"}), 404
 
-# NEW ROUTE: Verify OTP to start the trip
 @app.route('/verify_ride_otp', methods=['POST'])
 def verify_ride_otp():
     if 'user_id' not in session: return jsonify({"success": False}), 401
     data = request.json
     user_otp = data.get('otp')
     
-    # Find ride accepted by this driver
+    # Driver verifying the OTP for the ride they accepted
     ride = rides_coll.find_one({"driver_id": session['user_id'], "status": "accepted"})
     
-    if ride and ride['otp'] == user_otp:
+    if ride and ride.get('otp') == str(user_otp):
         rides_coll.update_one({"_id": ride['_id']}, {"$set": {"status": "started"}})
         return jsonify({"success": True})
     
-    return jsonify({"success": False})
+    return jsonify({"success": False, "message": "Invalid OTP"})
 
 @app.route('/finish_trip', methods=['POST'])
 def finish_trip():
-    # Only finish if the status was 'started' (OTP was verified)
-    rides_coll.update_one(
+    # Only allow finishing if the trip was actually started via OTP
+    res = rides_coll.update_one(
         {"driver_id": session['user_id'], "status": "started"},
         {"$set": {"status": "completed"}}
     )
-    return jsonify({"status": "success"})
+    if res.modified_count > 0:
+        return jsonify({"status": "success"})
+    return jsonify({"status": "error", "message": "Trip not started or already finished"})
 
 @app.route('/clear_completed_ride', methods=['POST'])
 def clear_completed_ride():
@@ -162,4 +170,45 @@ def clear_completed_ride():
         "$or": [{"driver_id": session['user_id']}, {"rider_id": session['user_id']}],
         "status": "completed"
     })
-    return
+    return jsonify({"status": "success"})
+
+@app.route('/check_requests')
+def check_requests():
+    res = rides_coll.find_one({"driver_id": session['user_id'], "status": "pending"})
+    if res:
+        rider = users_coll.find_one({"_id": ObjectId(res['rider_id'])})
+        return jsonify({"ride_id": str(res['_id']), "rider_name": rider['username'] if rider else "Rider"})
+    return jsonify({"ride_id": None})
+
+@app.route('/toggle_status', methods=['POST'])
+def toggle_status():
+    user = users_coll.find_one({"_id": ObjectId(session['user_id'])})
+    new_val = 1 if user.get('is_online') == 0 else 0
+    users_coll.update_one({"_id": ObjectId(session['user_id'])}, {"$set": {"is_online": new_val}})
+    return jsonify({"is_online": new_val})
+
+@app.route('/admin_panel')
+def admin_panel():
+    if not session.get('is_admin'): return redirect(url_for('login'))
+    all_users = list(users_coll.find())
+    for u in all_users: u['id'] = str(u['_id'])
+    
+    all_rides = []
+    for r in rides_coll.find().sort("_id", -1):
+        rdr = users_coll.find_one({"_id": ObjectId(r['rider_id'])})
+        drv = users_coll.find_one({"_id": ObjectId(r['driver_id'])})
+        all_rides.append({
+            "id": str(r['_id']),
+            "rider": rdr['username'] if rdr else "Deleted User",
+            "driver": drv['username'] if drv else "Deleted User",
+            "status": r['status']
+        })
+    return render_template('admin.html', all_users=all_users, all_rides=all_rides)
+
+@app.route('/logout')
+def logout(): 
+    session.clear()
+    return redirect(url_for('login'))
+
+if __name__ == '__main__':
+    app.run(debug

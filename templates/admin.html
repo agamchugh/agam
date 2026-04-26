@@ -3,29 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Panel</title>
+    <title>Admin Control Panel</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #121212; color: white; padding: 20px; }
-        .card { background: #1e1e26; border: none; border-radius: 15px; }
+        body { background: #121212; color: white; padding: 20px; font-family: sans-serif; }
+        .card { background: #1e1e26; border: none; border-radius: 15px; margin-bottom: 20px; }
         .table { color: white; }
-        input, select { font-size: 0.85rem !important; }
+        .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .online { background-color: #28a745; }
+        .offline { background-color: #dc3545; }
+        .badge-pending { background: #ffc107; color: black; }
+        .badge-accepted { background: #0dcaf0; color: black; }
+        .badge-completed { background: #198754; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2 class="text-warning">Admin Control</h2>
-            <a href="/dashboard" class="btn btn-outline-light btn-sm">Dashboard</a>
+            <h2 class="text-warning">Admin Control Center</h2>
+            <a href="/dashboard" class="btn btn-outline-warning btn-sm">Back to Map</a>
         </div>
 
+        <h4 class="text-info mb-3">Live & Recent Rides</h4>
+        <div class="card p-3 shadow">
+            <div class="table-responsive">
+                <table class="table table-dark table-hover">
+                    <thead>
+                        <tr>
+                            <th>Ride ID</th>
+                            <th>Rider</th>
+                            <th>Driver</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ride in all_rides %}
+                        <tr>
+                            <td>#{{ ride.id }}</td>
+                            <td>{{ ride.rider }}</td>
+                            <td>{{ ride.driver }}</td>
+                            <td>
+                                <span class="badge badge-{{ ride.status }}">{{ ride.status.upper() }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <h4 class="text-info mb-3">User Management</h4>
         <div class="card p-3 shadow">
             <div class="table-responsive">
                 <table class="table table-dark align-middle">
                     <thead>
                         <tr>
-                            <th>User</th>
-                            <th>Mobile</th>
+                            <th>Status</th>
+                            <th>User Details</th>
                             <th>Role</th>
                             <th class="text-center">Actions</th>
                         </tr>
@@ -33,11 +67,13 @@
                     <tbody>
                         {% for user in all_users %}
                         <tr>
+                            <td>
+                                <span class="status-dot {{ 'online' if user.is_online else 'offline' }}"></span>
+                                <small>{{ 'Online' if user.is_online else 'Offline' }}</small>
+                            </td>
                             <form action="/edit_user/{{ user.id }}" method="POST">
                                 <td>
-                                    <input type="text" name="username" value="{{ user.username }}" class="form-control form-control-sm bg-dark text-white border-secondary">
-                                </td>
-                                <td>
+                                    <input type="text" name="username" value="{{ user.username }}" class="form-control form-control-sm bg-dark text-white border-secondary mb-1">
                                     <input type="text" name="mobile" value="{{ user.mobile }}" class="form-control form-control-sm bg-dark text-white border-secondary">
                                 </td>
                                 <td>
@@ -50,8 +86,8 @@
                                     <div class="d-flex gap-2 justify-content-center">
                                         <button type="submit" class="btn btn-success btn-sm">Save</button>
                             </form>
-                                        <form action="/delete_user/{{ user.id }}" method="POST" onsubmit="return confirm('Delete this user?');">
-                                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                        <form action="/delete_user/{{ user.id }}" method="POST" onsubmit="return confirm('Delete user?');">
+                                            <button type="submit" class="btn btn-danger btn-sm">🗑️</button>
                                         </form>
                                     </div>
                                 </td>

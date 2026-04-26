@@ -31,9 +31,9 @@
         <div id="rider-ui">
             <button id="bookBtn" class="btn-main shadow">📍 REQUEST RICKSHAW</button>
             <div id="ride-info" class="status-box d-none text-start">
-                <div class="small text-secondary fw-bold">✅ RICKSHAW EN ROUTE</div>
+                <div id="ride-status-text" class="small text-secondary fw-bold">✅ RICKSHAW EN ROUTE</div>
                 <div id="drv-name" class="fw-bold text-warning"></div>
-                <div class="mt-1">
+                <div class="mt-1" id="eta-container">
                     <span id="dist-tag" class="badge bg-warning text-dark">-- km</span>
                     <span id="eta-tag" class="badge bg-info text-dark">ETA: -- mins</span>
                 </div>
@@ -45,7 +45,6 @@
             <div id="active-ride-box" class="status-box d-none text-start">
                 <div class="small text-secondary fw-bold">NAVIGATING TO RIDER...</div>
                 <div id="rider-name-display" class="fw-bold text-warning"></div>
-                <div id="driver-eta" class="badge bg-info text-dark mt-1">ETA: -- mins</div>
                 <button id="finishBtn" class="btn btn-success btn-sm w-100 mt-3 shadow">FINISH TRIP</button>
             </div>
             <div id="req-box" class="status-box d-none bg-success border-0 text-white">
@@ -60,141 +59,76 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
     <script>
-        // 1. Initialize Map safely
         var map = L.map('map', {zoomControl: false}).setView([20.59, 78.96], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         var uMarker = L.marker([0,0]).addTo(map);
         var otherMarker = L.marker([0,0]).addTo(map).setOpacity(0);
         var routingControl = null;
-        var isSyncing = false;
 
-        // 2. Routing Logic
-        function updateRouting(p1, p2) {
-            if (routingControl) {
-                routingControl.setWaypoints([L.latLng(p1[0], p1[1]), L.latLng(p2[0], p2[1])]);
-            } else {
-                routingControl = L.Routing.control({
-                    waypoints: [L.latLng(p1[0], p1[1]), L.latLng(p2[0], p2[1])],
-                    createMarker: () => null,
-                    lineOptions: { styles: [{ color: '#007bff', weight: 6, opacity: 0.8 }] },
-                    addWaypoints: false, fitSelectedRoutes: false
-                }).on('routesfound', e => {
-                    var s = e.routes[0].summary;
-                    var mins = Math.round(s.totalTime / 60);
-                    var km = (s.totalDistance / 1000).toFixed(1);
-                    if(document.getElementById('eta-tag')) document.getElementById('eta-tag').innerText = "ETA: "+mins+"m";
-                    if(document.getElementById('dist-tag')) document.getElementById('dist-tag').innerText = km+"km";
-                    if(document.getElementById('driver-eta')) document.getElementById('driver-eta').innerText = "ETA: "+mins+"m";
-                }).addTo(map);
-            }
-        }
-
-        // 3. Sync Logic with Null Checks
         async function sync() {
-            if (isSyncing) return;
-            isSyncing = true;
             navigator.geolocation.getCurrentPosition(async p => {
                 let lt = p.coords.latitude, ln = p.coords.longitude;
                 uMarker.setLatLng([lt, ln]);
-                try {
-                    await fetch('/update_location', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({latitude:lt, longitude:ln})});
-                    let r = await fetch('/get_active_ride');
-                    let d = await r.json();
-                    
-                    if(d.status === 'accepted') {
-                        otherMarker.setLatLng([d.lat, d.lon]).setOpacity(1);
-                        updateRouting([lt, ln], [d.lat, d.lon]);
-                        
-                        // Use optional chaining or manual checks for Rider UI
-                        let rideInfo = document.getElementById('ride-info');
-                        if(rideInfo) rideInfo.classList.remove('d-none');
-                        
-                        let bookBtn = document.getElementById('bookBtn');
-                        if(bookBtn) bookBtn.classList.add('d-none');
-                        
-                        let drvName = document.getElementById('drv-name');
-                        if(drvName) drvName.innerText = d.name;
-
-                        // Check for Driver UI
-                        let activeBox = document.getElementById('active-ride-box');
-                        if(activeBox) activeBox.classList.remove('d-none');
-                        
-                        let riderDisp = document.getElementById('rider-name-display');
-                        if(riderDisp) riderDisp.innerText = d.name;
-                        
-                    } else if (d.status === 'completed') {
-                        alert("Trip Finished!");
-                        await fetch('/clear_completed_ride', {method:'POST'});
-                        location.reload();
-                    }
-                } catch(e) { console.error("Sync error:", e); }
-                isSyncing = false;
-            }, () => { isSyncing = false; }, {enableHighAccuracy: true});
-        }
-        setInterval(sync, 4000); 
-        sync();
-
-        // 4. Role-Specific Events
-        {% if role == 'rider' %}
-        var bBtn = document.getElementById('bookBtn');
-        if(bBtn) {
-            bBtn.onclick = () => {
-                fetch('/book_ride', {method:'POST'}).then(r => r.json()).then(d => {
-                    if(d.status === 'none') alert("No drivers nearby!");
-                    else bBtn.classList.add('d-none');
-                });
-            };
-        }
-        {% else %}
-        let curR = null;
-        setInterval(async () => {
-            if(curR) return;
-            let r = await fetch('/check_requests');
-            let d = await r.json();
-            if(d && d.ride_id) {
-                curR = d.ride_id;
-                let rName = document.getElementById('rider-name');
-                if(rName) rName.innerText = d.rider_name;
-                let reqBox = document.getElementById('req-box');
-                if(reqBox) reqBox.classList.remove('d-none');
-            }
-        }, 3000);
-
-        let accBtn = document.getElementById('acceptBtn');
-        if(accBtn) {
-            accBtn.onclick = () => {
-                fetch('/accept_ride/'+curR, {method:'POST'}).then(() => {
-                    document.getElementById('req-box')?.classList.add('d-none');
-                    sync();
-                });
-            };
-        }
-
-        let finBtn = document.getElementById('finishBtn');
-        if(finBtn) {
-            finBtn.onclick = async () => {
-                if(confirm("Finish trip?")) {
-                    await fetch('/finish_trip', {method:'POST'});
+                await fetch('/update_location', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({latitude:lt, longitude:ln})});
+                
+                let r = await fetch('/get_active_ride');
+                let d = await r.json();
+                
+                if(d.status === 'accepted') {
+                    otherMarker.setLatLng([d.lat, d.lon]).setOpacity(1);
+                    document.getElementById('ride-info')?.classList.remove('d-none');
+                    document.getElementById('bookBtn')?.classList.add('d-none');
+                    if(document.getElementById('drv-name')) document.getElementById('drv-name').innerText = d.name;
+                    document.getElementById('active-ride-box')?.classList.remove('d-none');
+                } 
+                else if (d.status === 'completed') {
+                    alert("Trip Completed! Thank you.");
                     await fetch('/clear_completed_ride', {method:'POST'});
                     location.reload();
                 }
-            };
+            });
         }
+        setInterval(sync, 4000); sync();
 
-        let offBtn = document.getElementById('offlineBtn');
-        if(offBtn) {
-            offBtn.onclick = function() {
-                fetch('/toggle_status', {method:'POST'}).then(r => r.json()).then(d => {
-                    let b = document.getElementById('stat-badge');
-                    if(b) {
-                        b.className = d.is_online ? "badge bg-success" : "badge bg-danger";
-                        b.innerText = d.is_online ? "ONLINE" : "OFFLINE";
-                    }
-                    this.innerText = d.is_online ? "GO OFFLINE" : "GO ONLINE";
-                    this.style.background = d.is_online ? "#dc3545" : "#28a745";
-                });
-            };
-        }
+        {% if role == 'rider' %}
+        document.getElementById('bookBtn').onclick = () => {
+            fetch('/book_ride', {method:'POST'}).then(r => r.json()).then(d => {
+                if(d.status === 'none') alert("No drivers nearby!");
+                else document.getElementById('bookBtn').classList.add('d-none');
+            });
+        };
+        {% else %}
+        setInterval(async () => {
+            let r = await fetch('/check_requests');
+            let d = await r.json();
+            if(d.ride_id) {
+                document.getElementById('rider-name').innerText = d.rider_name;
+                document.getElementById('req-box').classList.remove('d-none');
+                window.curRideId = d.ride_id;
+            }
+        }, 3000);
+
+        document.getElementById('acceptBtn').onclick = () => {
+            fetch('/accept_ride/'+window.curRideId, {method:'POST'}).then(() => {
+                document.getElementById('req-box').classList.add('d-none');
+                sync();
+            });
+        };
+
+        document.getElementById('finishBtn').onclick = async () => {
+            await fetch('/finish_trip', {method:'POST'});
+            location.reload();
+        };
+
+        document.getElementById('offlineBtn').onclick = function() {
+            fetch('/toggle_status', {method:'POST'}).then(r => r.json()).then(d => {
+                let b = document.getElementById('stat-badge');
+                b.className = d.is_online ? "badge bg-success" : "badge bg-danger";
+                b.innerText = d.is_online ? "ONLINE" : "OFFLINE";
+                this.innerText = d.is_online ? "GO OFFLINE" : "GO ONLINE";
+                this.style.background = d.is_online ? "#dc3545" : "#28a745";
+            });
+        };
         {% endif %}
     </script>
 </body>

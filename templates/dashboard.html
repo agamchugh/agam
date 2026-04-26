@@ -13,8 +13,6 @@
         .ui-panel { height: 40%; padding: 15px; background: #1e1e26; border-radius: 30px 30px 0 0; position: relative; z-index: 1000; box-shadow: 0 -10px 20px rgba(0,0,0,0.5); overflow-y: auto; }
         .btn-main { background: #ffc107; color: black; font-weight: bold; padding: 12px; border-radius: 15px; width: 100%; border: none; font-size: 1.1rem; }
         .status-box { background: #2a2a35; padding: 12px; border-radius: 15px; margin-top: 10px; border-left: 4px solid #ffc107; }
-        
-        /* ROAD LINE STYLING */
         .leaflet-routing-container { display: none !important; }
         path.leaflet-interactive { stroke: #007bff; stroke-width: 8; stroke-opacity: 0.9; }
         .driver-marker { filter: hue-rotate(140deg); }
@@ -81,7 +79,7 @@
                 var mins = Math.round(s.totalTime / 60);
                 var km = (s.totalDistance / 1000).toFixed(1);
                 if(document.getElementById('eta-tag')) document.getElementById('eta-tag').innerText = "ETA: " + mins + " mins";
-                if(document.getElementById('dist-tag')) document.getElementById('dist-tag').innerText = km + " km";
+                if(document.getElementById('dist-tag')) document.getElementById('dist-tag').innerText = km + km;
                 if(document.getElementById('driver-eta')) document.getElementById('driver-eta').innerText = "ETA: " + mins + " mins";
             }).addTo(map);
         }
@@ -104,8 +102,11 @@
                             document.getElementById('rider-name-display').innerText = d.name;
                         }
                     } else if (d.status === 'completed') {
-                        alert("Trip Finished! Page will reset.");
-                        location.reload();
+                        alert("Trip Finished! Returning to dashboard.");
+                        // Clear the ride from DB before reloading to prevent stuck loop
+                        fetch('/clear_completed_ride', {method:'POST'}).then(() => {
+                            location.reload();
+                        });
                     }
                 });
             }, err => console.log(err), {enableHighAccuracy: true});
@@ -130,11 +131,18 @@
             });
         }, 3000);
         document.getElementById('acceptBtn').onclick = () => fetch('/accept_ride/'+curR, {method:'POST'}).then(() => document.getElementById('req-box').classList.add('d-none'));
+        
         document.getElementById('finishBtn').onclick = () => {
             if(confirm("Complete this trip?")) {
-                fetch('/finish_trip', {method:'POST'}).then(() => location.reload());
+                fetch('/finish_trip', {method:'POST'}).then(() => {
+                    // Driver clears ride immediately for themselves
+                    fetch('/clear_completed_ride', {method:'POST'}).then(() => {
+                        location.reload();
+                    });
+                });
             }
         };
+
         document.getElementById('offlineBtn').onclick = function() {
             fetch('/toggle_status', {method:'POST'}).then(r => r.json()).then(d => {
                 let b = document.getElementById('stat-badge');

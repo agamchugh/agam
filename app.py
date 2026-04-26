@@ -7,7 +7,8 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'agam_secure_key_123')
+# Using a secure key from environment or default
+app.secret_key = os.environ.get('SECRET_KEY', 'agam_master_key_778899')
 app.permanent_session_lifetime = timedelta(days=30)
 
 # --- MONGODB CONFIG ---
@@ -86,24 +87,54 @@ def book_ride():
 def get_active_ride():
     if 'user_id' not in session: return jsonify({"status": "none"})
     uid = session['user_id']
-    ride = rides_coll.find_one({"$or": [{"rider_id": uid}, {"driver_id": uid}], "status": {"$in": ["pending", "accepted", "started", "completed"]}}, sort=[("_id", -1)])
+    
+    # Check for active ride involving the user
+    ride = rides_coll.find_one({
+        "$or": [{"rider_id": uid}, {"driver_id": uid}],
+        "status": {"$in": ["pending", "accepted", "started"]}
+    }, sort=[("_id", -1)])
+    
     if ride:
         other_id = ride['driver_id'] if session['role'] == 'rider' else ride['rider_id']
         other_user = users_coll.find_one({"_id": ObjectId(other_id)})
+        
         return jsonify({
+            "ride_id": str(ride['_id']),
             "name": other_user['username'] if other_user else "Partner",
             "lat": other_user['lat'] if other_user else 0,
             "lon": other_user['lon'] if other_user else 0,
             "status": ride['status'],
-            "otp": str(ride.get('otp')) if session['role'] == 'rider' else None
+            # Ensure OTP is a cleaned string for the rider
+            "otp": str(ride.get('otp')).strip() if session['role'] == 'rider' else None
         })
     return jsonify({"status": "none"})
+
+@app.route('/verify_ride_otp', methods=['POST'])
+def verify_ride_otp():
+    if 'user_id' not in session: return jsonify({"success": False}), 401
+    
+    data = request.json
+    # Deep clean input to prevent string/int mismatch errors
+    entered_otp = str(data.get('otp', '')).strip()
+    
+    ride = rides_coll.find_one({"driver_id": session['user_id'], "status": "accepted"})
+    
+    # Strictly compare both values as cleaned strings
+    if ride and str(ride.get('otp')).strip() == entered_otp:
+        rides_coll.update_one({"_id": ride['_id']}, {"$set": {"status": "started"}})
+        return jsonify({"success": True})
+    
+    return jsonify({"success": False, "message": "Wrong OTP! Please check with the rider."})
 
 @app.route('/cancel_ride', methods=['POST'])
 def cancel_ride():
     if 'user_id' not in session: return jsonify({"status": "unauthorized"}), 401
-    # Allows cancellation for both driver and rider before trip starts
-    rides_coll.delete_many({"$or": [{"rider_id": session['user_id']}, {"driver_id": session['user_id']}], "status": {"$in": ["pending", "accepted"]}})
+    
+    # Unified cancellation logic for both roles
+    rides_coll.delete_many({
+        "$or": [{"rider_id": session['user_id']}, {"driver_id": session['user_id']}], 
+        "status": {"$in": ["pending", "accepted"]}
+    })
     return jsonify({"status": "success"})
 
 @app.route('/accept_ride/<string:ride_id>', methods=['POST'])
@@ -114,18 +145,6 @@ def accept_ride(ride_id):
         rides_coll.update_one({"_id": ObjectId(ride_id)}, {"$set": {"status": "accepted"}})
         return jsonify({"status": "success"})
     return jsonify({"status": "error"}), 404
-
-@app.route('/verify_ride_otp', methods=['POST'])
-def verify_ride_otp():
-    if 'user_id' not in session: return jsonify({"success": False}), 401
-    data = request.json
-    entered_otp = str(data.get('otp', '')).strip()
-    ride = rides_coll.find_one({"driver_id": session['user_id'], "status": "accepted"})
-    # CRITICAL FIX: Ensure both sides are strings for comparison
-    if ride and str(ride.get('otp')).strip() == entered_otp:
-        rides_coll.update_one({"_id": ride['_id']}, {"$set": {"status": "started"}})
-        return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Wrong OTP! Please check with the rider."})
 
 @app.route('/finish_trip', methods=['POST'])
 def finish_trip():

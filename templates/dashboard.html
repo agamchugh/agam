@@ -1,18 +1,38 @@
-<div id="rider-ui" class="{% if role != 'rider' %}d-none{% endif %}">
-    <div id="booking-area">
-        <button class="btn btn-warning w-100 py-3 mb-3" onclick="bookRide()">BOOK A RICKSHAW</button>
+<div class="container mt-4">
+    <div id="rider-ui" class="{% if role != 'rider' %}d-none{% endif %}">
+        <div id="booking-area">
+            <button class="btn btn-warning w-100 py-3 mb-3 fw-bold" onclick="bookRide()">BOOK A RICKSHAW</button>
+        </div>
+
+        <div id="active-ride-area" class="d-none">
+            <div class="card bg-dark text-white p-3 border-warning">
+                <p class="mb-1 text-center text-muted small">GIVE THIS OTP TO DRIVER:</p>
+                <div id="otp-display" class="display-4 text-center text-warning font-monospace fw-bold py-2" style="background: rgba(0,0,0,0.5); border-radius: 10px;">----</div>
+                <hr class="border-secondary">
+                <p id="ride-status" class="text-center badge bg-warning text-dark w-100 py-2 mb-3">Calculating...</p>
+                <button class="btn btn-outline-danger w-100" onclick="cancelRide()">CANCEL RIDE</button>
+            </div>
+        </div>
     </div>
 
-    <div id="active-ride-area" class="d-none">
-        <div class="card bg-dark text-white p-3 border-warning">
-            <p class="mb-1 text-center text-muted small">GIVE THIS OTP TO DRIVER:</p>
-            <div id="otp-display" class="display-4 text-center text-warning font-monospace fw-bold">----</div>
-            <hr class="border-secondary">
-            <p id="ride-status" class="text-center badge bg-warning text-dark w-100 py-2">Waiting for Driver...</p>
-            
-            <button class="btn btn-outline-danger w-100 mt-3" onclick="cancelRide()">
-                CANCEL RIDE
-            </button>
+    <div id="driver-ui" class="{% if role != 'driver' %}d-none{% endif %}">
+        <button id="status-btn" class="btn w-100 py-3 mb-3 fw-bold" onclick="toggleStatus()">GO ONLINE</button>
+        
+        <div id="driver-active-area" class="d-none">
+            <div class="card bg-dark text-white p-3 border-warning">
+                <h6 class="text-warning small mb-3">NAVIGATING TO RIDER: <span id="rider-name" class="text-white">---</span></h6>
+                
+                <div id="otp-input-section">
+                    <input type="number" id="otp-input" class="form-control form-control-lg text-center mb-2" placeholder="Enter OTP">
+                    <button class="btn btn-warning w-100 fw-bold mb-2" onclick="verifyOTP()">START TRIP</button>
+                </div>
+
+                <div id="finish-section" class="d-none">
+                    <button class="btn btn-success w-100 py-3 fw-bold" onclick="finishTrip()">FINISH TRIP</button>
+                </div>
+
+                <button class="btn btn-sm btn-outline-danger w-100 mt-2" onclick="cancelRide()">CANCEL / REJECT</button>
+            </div>
         </div>
     </div>
 </div>
@@ -23,31 +43,49 @@ function sync() {
     .then(r => r.json())
     .then(data => {
         if (data.status !== "none") {
-            document.getElementById('booking-area').classList.add('d-none');
-            document.getElementById('active-ride-area').classList.remove('d-none');
-            
-            // Updates OTP display from server data
-            if (data.otp) {
-                document.getElementById('otp-display').innerText = data.otp;
+            if ("{{ role }}" === "rider") {
+                document.getElementById('booking-area').classList.add('d-none');
+                document.getElementById('active-ride-area').classList.remove('d-none');
+                document.getElementById('otp-display').innerText = data.otp || "----";
+                document.getElementById('ride-status').innerText = "STATUS: " + data.status.toUpperCase();
+            } else {
+                document.getElementById('driver-active-area').classList.remove('d-none');
+                document.getElementById('rider-name').innerText = data.name;
+                if (data.status === 'started') {
+                    document.getElementById('otp-input-section').classList.add('d-none');
+                    document.getElementById('finish-section').classList.remove('d-none');
+                }
             }
-            document.getElementById('ride-status').innerText = "STATUS: " + data.status.toUpperCase();
         } else {
-            document.getElementById('booking-area').classList.remove('d-none');
-            document.getElementById('active-ride-area').classList.add('d-none');
+            document.getElementById('booking-area')?.classList.remove('d-none');
+            document.getElementById('active-ride-area')?.classList.add('d-none');
+            document.getElementById('driver-active-area')?.classList.add('d-none');
         }
     });
 }
 
 function cancelRide() {
-    if (confirm("Are you sure you want to cancel your ride?")) {
-        fetch('/cancel_ride', { method: 'POST' })
-        .then(res => res.json())
-        .then(data => {
-            if(data.status === 'success') {
-                location.reload();
-            }
-        });
+    if (confirm("Are you sure you want to cancel?")) {
+        fetch('/cancel_ride', { method: 'POST' }).then(() => location.reload());
     }
+}
+
+function verifyOTP() {
+    const val = document.getElementById('otp-input').value;
+    fetch('/verify_ride_otp', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ otp: val })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert("Trip Started!");
+            sync();
+        } else {
+            alert(data.message);
+        }
+    });
 }
 
 function bookRide() {
@@ -59,23 +97,9 @@ function bookRide() {
     });
 }
 
-// Driver side verification function (ensure this is in your driver script area)
-function verifyOTP() {
-    const otpInput = document.getElementById('otp-input').value;
-    fetch('/verify_ride_otp', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ otp: otpInput })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if(data.success) {
-            location.reload();
-        } else {
-            alert(data.message || "Invalid OTP");
-        }
-    });
+function finishTrip() {
+    fetch('/finish_trip', { method: 'POST' }).then(() => location.reload());
 }
 
-setInterval(sync, 4000); // Check every 4 seconds
+setInterval(sync, 4000);
 </script>

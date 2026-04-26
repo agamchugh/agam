@@ -1,5 +1,6 @@
 import os
 import math
+import random
 from datetime import timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from pymongo import MongoClient
@@ -16,6 +17,13 @@ db = client['rickshaw_db']
 users_coll = db['users']
 rides_coll = db['rides']
 
+# Helper to calculate distance for booking logic
+def get_distance(lat1, lon1, lat2, lon2):
+    R = 6371
+    dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
+
 @app.route('/')
 def home():
     if 'user_id' in session: return redirect(url_for('dashboard'))
@@ -29,7 +37,6 @@ def login():
         user = users_coll.find_one({"email": email, "password": password})
         if user:
             session.permanent = True
-            # Admin check logic
             is_adm = (email == 'agamchugh153@gmail.com')
             session.update({
                 'user_id': str(user['_id']), 
@@ -53,6 +60,41 @@ def dashboard():
                            role=session['role'], 
                            is_admin=session.get('is_admin'))
 
+@app.route('/update_location', methods=['POST'])
+def update_location():
+    if 'user_id' not in session: return jsonify({"status": "error"}), 401
+    data = request.json
+    users_coll.update_one(
+        {"_id": ObjectId(session['user_id'])},
+        {"$set": {"lat": data['latitude'], "lon": data['longitude'], "last_seen": data.get('timestamp')}}
+    )
+    return jsonify({"status": "ok"})
+
+@app.route('/toggle_status', methods=['POST'])
+def toggle_status():
+    user = users_coll.find_one({"_id": ObjectId(session['user_id'])})
+    new_status = not user.get('is_online', False)
+    users_coll.update_one({"_id": ObjectId(session['user_id'])}, {"$set": {"is_online": new_status}})
+    return jsonify({"is_online": new_status})
+
+@app.route('/book_ride', methods=['POST'])
+def book_ride():
+    rider_id = session['user_id']
+    rider_user = users_coll.find_one({"_id": ObjectId(rider_id)})
+    
+    # Simple logic: find any online driver
+    driver = users_coll.find_one({"role": "driver", "is_online": True})
+    if driver:
+        otp = random.randint(1000, 9999)
+        ride_id = rides_coll.insert_one({
+            "rider_id": rider_id,
+            "driver_id": str(driver['_id']),
+            "otp": str(otp),
+            "status": "accepted"
+        }).inserted_id
+        return jsonify({"status": "success", "ride_id": str(ride_id)})
+    return jsonify({"status": "no_drivers"})
+
 @app.route('/get_active_ride')
 def get_active_ride():
     if 'user_id' not in session: return jsonify({"status": "none"})
@@ -63,10 +105,10 @@ def get_active_ride():
     
     if ride:
         other_id = ride['driver_id'] if role == 'rider' else ride['rider_id']
-        other_user = users_coll.find_one({"_id": ObjectId(other_id)}) if other_id else None
+        other_user = users_coll.find_one({"_id": ObjectId(other_id)})
         return jsonify({
             "status": ride['status'],
-            "name": other_user['username'] if other_user else "Searching...",
+            "name": other_user['username'] if other_user else "Partner",
             "otp": str(ride.get('otp')).strip() if role == 'rider' else None,
             "lat": other_user.get('lat') if other_user else None,
             "lon": other_user.get('lon') if other_user else None
@@ -87,12 +129,16 @@ def cancel_ride():
     rides_coll.delete_many({"$or": [{"rider_id": session['user_id']}, {"driver_id": session['user_id']}], "status": {"$in": ["pending", "accepted"]}})
     return jsonify({"status": "success"})
 
-# --- ADMIN API ---
+@app.route('/finish_trip', methods=['POST'])
+def finish_trip():
+    rides_coll.update_one({"driver_id": session['user_id'], "status": "started"}, {"$set": {"status": "completed"}})
+    return jsonify({"status": "success"})
+
 @app.route('/admin/reset_system', methods=['POST'])
 def reset_system():
     if not session.get('is_admin'): return jsonify({"status": "error"})
     rides_coll.delete_many({})
-    return jsonify({"status": "success", "message": "System Cleared"})
+    return jsonify({"status": "success"})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)

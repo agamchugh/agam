@@ -14,14 +14,9 @@
         .btn-main { background: #ffc107; color: black; font-weight: bold; padding: 12px; border-radius: 15px; width: 100%; border: none; font-size: 1.1rem; }
         .status-box { background: #2a2a35; padding: 12px; border-radius: 15px; margin-top: 10px; border-left: 4px solid #ffc107; }
         
-        /* NAVIGATION LINE STYLING */
+        /* ROAD LINE STYLING */
         .leaflet-routing-container { display: none !important; }
-        path.leaflet-interactive { 
-            stroke: #007bff; 
-            stroke-width: 7; 
-            stroke-opacity: 0.8; 
-            stroke-linejoin: round;
-        }
+        path.leaflet-interactive { stroke: #007bff; stroke-width: 8; stroke-opacity: 0.9; }
         .driver-marker { filter: hue-rotate(140deg); }
     </style>
 </head>
@@ -36,15 +31,14 @@
 
         {% if role == 'rider' %}
         <div id="rider-ui">
-            <button id="bookBtn" class="btn-main">📍 REQUEST RICKSHAW</button>
+            <button id="bookBtn" class="btn-main shadow">📍 REQUEST RICKSHAW</button>
             <div id="ride-info" class="status-box d-none text-start">
-                <div id="msg" class="small text-secondary fw-bold">SEARCHING...</div>
+                <div id="msg" class="small text-secondary fw-bold">✅ RICKSHAW EN ROUTE</div>
                 <div id="drv-name" class="fw-bold text-warning"></div>
-                <div class="d-flex gap-2 mt-1">
+                <div class="mt-1">
                     <span id="dist-tag" class="badge bg-warning text-dark">-- km</span>
                     <span id="eta-tag" class="badge bg-info text-dark">ETA: -- mins</span>
                 </div>
-                <button id="cancelBtn" class="btn btn-outline-danger btn-sm w-100 mt-3">CANCEL RIDE</button>
             </div>
         </div>
         {% else %}
@@ -54,7 +48,7 @@
                 <div class="small text-secondary fw-bold">NAVIGATING TO RIDER...</div>
                 <div id="rider-name-display" class="fw-bold text-warning"></div>
                 <div id="driver-eta" class="badge bg-info text-dark mt-1">ETA: -- mins</div>
-                <button id="finishBtn" class="btn btn-success btn-sm w-100 mt-3">FINISH TRIP</button>
+                <button id="finishBtn" class="btn btn-success btn-sm w-100 mt-3 shadow">FINISH TRIP</button>
             </div>
             <div id="req-box" class="status-box d-none bg-success border-0 text-white">
                 <p class="mb-2">New Request: <span id="rider-name" class="fw-bold"></span></p>
@@ -70,23 +64,22 @@
     <script>
         var map = L.map('map', {zoomControl: false}).setView([20.59, 78.96], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        
         var uMarker = L.marker([0,0]).addTo(map);
         var otherMarker = L.marker([0,0], {icon: L.icon({iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png', className: 'driver-marker'})}).addTo(map).setOpacity(0);
         var routingControl = null;
 
-        function updateRouting(myPos, targetPos) {
+        function updateRouting(p1, p2) {
             if (routingControl) map.removeControl(routingControl);
             routingControl = L.Routing.control({
-                waypoints: [L.latLng(myPos[0], myPos[1]), L.latLng(targetPos[0], targetPos[1])],
-                routeWhileDragging: false,
-                addWaypoints: false,
+                waypoints: [L.latLng(p1[0], p1[1]), L.latLng(p2[0], p2[1])],
                 createMarker: function() { return null; },
-                lineOptions: { styles: [{ color: '#007bff', weight: 7 }] }
+                lineOptions: { styles: [{ color: '#007bff', weight: 8, opacity: 0.9 }] },
+                addWaypoints: false,
+                fitSelectedRoutes: true
             }).on('routesfound', function(e) {
-                var sum = e.routes[0].summary;
-                var mins = Math.round(sum.totalTime / 60);
-                var km = (sum.totalDistance / 1000).toFixed(1);
+                var s = e.routes[0].summary;
+                var mins = Math.round(s.totalTime / 60);
+                var km = (s.totalDistance / 1000).toFixed(1);
                 if(document.getElementById('eta-tag')) document.getElementById('eta-tag').innerText = "ETA: " + mins + " mins";
                 if(document.getElementById('dist-tag')) document.getElementById('dist-tag').innerText = km + " km";
                 if(document.getElementById('driver-eta')) document.getElementById('driver-eta').innerText = "ETA: " + mins + " mins";
@@ -105,19 +98,17 @@
                         updateRouting([lt, ln], [d.lat, d.lon]);
                         if(document.getElementById('ride-info')) document.getElementById('ride-info').classList.remove('d-none');
                         if(document.getElementById('bookBtn')) document.getElementById('bookBtn').classList.add('d-none');
-                        if(document.getElementById('msg')) document.getElementById('msg').innerText = "✅ RICKSHAW ARRIVING";
                         if(document.getElementById('drv-name')) document.getElementById('drv-name').innerText = d.name;
                         if(document.getElementById('active-ride-box')) {
                             document.getElementById('active-ride-box').classList.remove('d-none');
                             document.getElementById('rider-name-display').innerText = d.name;
                         }
-                    } else if (routingControl) { 
-                        map.removeControl(routingControl); 
-                        routingControl = null; 
-                        otherMarker.setOpacity(0); 
+                    } else if (d.status === 'completed') {
+                        alert("Trip Finished! Page will reset.");
+                        location.reload();
                     }
                 });
-            });
+            }, err => console.log(err), {enableHighAccuracy: true});
         }
         setInterval(sync, 5000); sync();
 
@@ -127,7 +118,6 @@
             document.getElementById('ride-info').classList.remove('d-none');
             fetch('/book_ride', {method:'POST'});
         };
-        document.getElementById('cancelBtn').onclick = () => fetch('/cancel_ride', {method:'POST'}).then(() => location.reload());
         {% else %}
         let curR = null;
         setInterval(() => {
@@ -140,7 +130,11 @@
             });
         }, 3000);
         document.getElementById('acceptBtn').onclick = () => fetch('/accept_ride/'+curR, {method:'POST'}).then(() => document.getElementById('req-box').classList.add('d-none'));
-        document.getElementById('finishBtn').onclick = () => fetch('/cancel_ride', {method:'POST'}).then(() => location.reload());
+        document.getElementById('finishBtn').onclick = () => {
+            if(confirm("Complete this trip?")) {
+                fetch('/finish_trip', {method:'POST'}).then(() => location.reload());
+            }
+        };
         document.getElementById('offlineBtn').onclick = function() {
             fetch('/toggle_status', {method:'POST'}).then(r => r.json()).then(d => {
                 let b = document.getElementById('stat-badge');

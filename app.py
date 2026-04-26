@@ -6,21 +6,28 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 app = Flask(__name__)
 app.secret_key = 'agam_rickshaw_secure_key'
 
+# --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
+    # Main Users Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT, email TEXT NOT NULL UNIQUE,
             mobile TEXT, password TEXT NOT NULL,
-            role TEXT DEFAULT 'rider', lat REAL DEFAULT 0, lon REAL DEFAULT 0, is_online BOOLEAN DEFAULT 0
+            role TEXT DEFAULT 'rider', 
+            lat REAL DEFAULT 0, 
+            lon REAL DEFAULT 0, 
+            is_online BOOLEAN DEFAULT 0
         )
     ''')
+    # Ride Tracking Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS rides (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            rider_id INTEGER, driver_id INTEGER,
+            rider_id INTEGER, 
+            driver_id INTEGER,
             status TEXT DEFAULT 'pending'
         )
     ''')
@@ -29,12 +36,15 @@ def init_db():
 
 init_db()
 
+# Distance calculation formula (Haversine)
 def get_distance(lat1, lon1, lat2, lon2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
+
+# --- ROUTES ---
 
 @app.route('/')
 def home():
@@ -108,6 +118,16 @@ def update_location():
     conn.close()
     return jsonify({"status": "success"})
 
+@app.route('/get_nearby_drivers')
+def get_nearby_drivers():
+    conn = sqlite3.connect('users.db')
+    cursor = conn.cursor()
+    # Fetch all online drivers to show on the Rider's map discovery
+    cursor.execute('SELECT username, lat, lon FROM users WHERE role = "driver" AND is_online = 1')
+    drivers = [{"name": row[0], "lat": row[1], "lon": row[2]} for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(drivers)
+
 @app.route('/book_ride', methods=['POST'])
 def book_ride():
     rider_id = session.get('user_id')
@@ -120,7 +140,7 @@ def book_ride():
     
     best_driver = None
     for d_id, d_lat, d_lon in drivers:
-        if get_distance(r_lat, r_lon, d_lat, d_lon) <= 2.5: # 2.5km range
+        if get_distance(r_lat, r_lon, d_lat, d_lon) <= 3.0: # 3km booking range
             best_driver = d_id
             break
             
@@ -128,46 +148,24 @@ def book_ride():
         cursor.execute('INSERT INTO rides (rider_id, driver_id) VALUES (?, ?)', (rider_id, best_driver))
         conn.commit()
         conn.close()
-        return jsonify({"status": "success", "message": "Driver Found! Request sent."})
+        return jsonify({"status": "success", "message": "Request sent to nearest Rickshaw!"})
     conn.close()
-    return jsonify({"status": "none", "message": "No autos nearby."})
+    return jsonify({"status": "none", "message": "No rickshaws found nearby."})
 
 @app.route('/check_requests')
 def check_requests():
     driver_id = session.get('user_id')
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT rides.id, users.username FROM rides JOIN users ON rides.rider_id = users.id WHERE driver_id = ? AND status = "pending"', (driver_id,))
+    cursor.execute('''
+        SELECT rides.id, users.username 
+        FROM rides JOIN users ON rides.rider_id = users.id 
+        WHERE driver_id = ? AND status = "pending"
+    ''', (driver_id,))
     res = cursor.fetchone()
     conn.close()
     return jsonify({"ride_id": res[0], "rider_name": res[1]}) if res else jsonify({"ride_id": None})
 
 @app.route('/accept_ride/<int:ride_id>', methods=['POST'])
 def accept_ride(ride_id):
-    conn = sqlite3.connect('users.db')
-    cursor = conn.cursor()
-    cursor.execute('UPDATE rides SET status = "accepted" WHERE id = ?', (ride_id,))
-    cursor.execute('SELECT users.username, users.mobile FROM rides JOIN users ON rides.driver_id = users.id WHERE rides.id = ?', (ride_id,))
-    d_info = cursor.fetchone()
-    conn.commit()
-    conn.close()
-    return jsonify({"status": "success", "driver_name": d_info[0], "driver_mobile": d_info[1]})
-
-@app.route('/ride_status')
-def ride_status():
-    rider_id = session.get('user_id')
-    conn = sqlite3.connect('users.db')
-    cursor = conn.cursor()
-    cursor.execute('''SELECT rides.status, users.username, users.mobile FROM rides JOIN users ON rides.driver_id = users.id 
-                      WHERE rides.rider_id = ? AND rides.status = "accepted" ORDER BY rides.id DESC LIMIT 1''', (rider_id,))
-    res = cursor.fetchone()
-    conn.close()
-    return jsonify({"status": res[0], "driver_name": res[1], "driver_phone": res[2]}) if res else jsonify({"status": "searching"})
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
-
-if __name__ == '__main__':
-    app.run(debug=True)
+    conn =

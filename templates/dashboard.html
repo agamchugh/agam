@@ -4,12 +4,15 @@
     </div>
 
     <div id="active-ride-area" class="d-none">
-        <div class="card bg-dark text-white p-3">
-            <p class="mb-1 text-muted">GIVE THIS OTP TO DRIVER:</p>
-            <div id="otp-display" class="h1 text-warning font-monospace">----</div>
-            <hr>
-            <p id="ride-status">Waiting for Driver...</p>
-            <button class="btn btn-danger w-100" onclick="cancelRide()">CANCEL RIDE</button>
+        <div class="card bg-dark text-white p-3 border-warning">
+            <p class="mb-1 text-center text-muted small">GIVE THIS OTP TO DRIVER:</p>
+            <div id="otp-display" class="display-4 text-center text-warning font-monospace fw-bold">----</div>
+            <hr class="border-secondary">
+            <p id="ride-status" class="text-center badge bg-warning text-dark w-100 py-2">Waiting for Driver...</p>
+            
+            <button class="btn btn-outline-danger w-100 mt-3" onclick="cancelRide()">
+                CANCEL RIDE
+            </button>
         </div>
     </div>
 </div>
@@ -23,11 +26,11 @@ function sync() {
             document.getElementById('booking-area').classList.add('d-none');
             document.getElementById('active-ride-area').classList.remove('d-none');
             
-            // Fix: OTP Visibility
+            // Updates OTP display from server data
             if (data.otp) {
                 document.getElementById('otp-display').innerText = data.otp;
             }
-            document.getElementById('ride-status').innerText = "Status: " + data.status;
+            document.getElementById('ride-status').innerText = "STATUS: " + data.status.toUpperCase();
         } else {
             document.getElementById('booking-area').classList.remove('d-none');
             document.getElementById('active-ride-area').classList.add('d-none');
@@ -36,9 +39,14 @@ function sync() {
 }
 
 function cancelRide() {
-    if (confirm("Are you sure you want to cancel?")) {
+    if (confirm("Are you sure you want to cancel your ride?")) {
         fetch('/cancel_ride', { method: 'POST' })
-        .then(() => location.reload());
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === 'success') {
+                location.reload();
+            }
+        });
     }
 }
 
@@ -48,6 +56,24 @@ function bookRide() {
     .then(data => {
         if (data.status === 'success') sync();
         else alert("No drivers nearby!");
+    });
+}
+
+// Driver side verification function (ensure this is in your driver script area)
+function verifyOTP() {
+    const otpInput = document.getElementById('otp-input').value;
+    fetch('/verify_ride_otp', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ otp: otpInput })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if(data.success) {
+            location.reload();
+        } else {
+            alert(data.message || "Invalid OTP");
+        }
     });
 }
 

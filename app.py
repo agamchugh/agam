@@ -1,33 +1,23 @@
 import os
-import sqlite3
 import math
+from datetime import timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 
 app = Flask(__name__)
 app.secret_key = 'agam_rickshaw_secure_key'
+app.permanent_session_lifetime = timedelta(days=30)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'users.db')
+# --- 1. MONGODB CONFIG ---
+# This uses your specific connection string provided
+# It checks Render's environment variables first (Security best practice)
+MONGO_URI = os.environ.get('MONGO_URI', "mongodb+srv://agamchugh:agamchugh1234@agam.mn4qkm8.mongodb.net/?appName=agam")
 
-def query_db(query, args=(), one=False, commit=False):
-    with sqlite3.connect(DB_PATH, timeout=10) as conn:
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute(query, args)
-        if commit: conn.commit()
-        rv = cur.fetchall()
-        return (rv[0] if rv else None) if one else rv
-
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, email TEXT NOT NULL UNIQUE, 
-            mobile TEXT, password TEXT NOT NULL, role TEXT DEFAULT 'rider', 
-            lat REAL DEFAULT 0, lon REAL DEFAULT 0, is_online BOOLEAN DEFAULT 0)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS rides (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, rider_id INTEGER, driver_id INTEGER, 
-            status TEXT DEFAULT 'pending')''')
-
-init_db()
+client = MongoClient(MONGO_URI)
+db = client['rickshaw_db']
+users_coll = db['users']
+rides_coll = db['rides']
 
 def get_distance(lat1, lon1, lat2, lon2):
     R = 6371
@@ -36,25 +26,45 @@ def get_distance(lat1, lon1, lat2, lon2):
     return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
 
 @app.route('/')
-def home(): return redirect(url_for('login'))
+def home():
+    if 'user_id' in session: return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
-        data = (request.form.get('username'), request.form.get('email'), request.form.get('mobile'), request.form.get('password'), request.form.get('role'))
-        try:
-            query_db('INSERT INTO users (username, email, mobile, password, role) VALUES (?, ?, ?, ?, ?)', data, commit=True)
-            return redirect(url_for('login'))
-        except: return "Error: User exists."
+        email = request.form.get('email')
+        if users_coll.find_one({"email": email}):
+            return "Error: User exists. <a href='/login'>Login</a>"
+        
+        user_data = {
+            "username": request.form.get('username'),
+            "email": email,
+            "mobile": request.form.get('mobile'),
+            "password": request.form.get('password'),
+            "role": request.form.get('role'),
+            "lat": 0, "lon": 0, "is_online": 0
+        }
+        users_coll.insert_one(user_data)
+        return redirect(url_for('login'))
     return render_template('signup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user = query_db('SELECT * FROM users WHERE email = ? AND password = ?', (request.form.get('email'), request.form.get('password')), one=True)
+        email = request.form.get('email')
+        password = request.form.get('password')
+        user = users_coll.find_one({"email": email, "password": password})
+        
         if user:
-            is_adm = (user['email'] == 'agamchugh153@gmail.com')
-            session.update({'user_id': user['id'], 'username': user['username'], 'role': user['role'], 'is_admin': is_adm})
+            session.permanent = True
+            is_adm = (email == 'agamchugh153@gmail.com')
+            session.update({
+                'user_id': str(user['_id']), 
+                'username': user['username'], 
+                'role': user['role'], 
+                'is_admin': is_adm
+            })
             return redirect(url_for('dashboard'))
     return render_template('login.html')
 
@@ -65,93 +75,110 @@ def dashboard():
 
 @app.route('/update_location', methods=['POST'])
 def update_location():
-    query_db('UPDATE users SET lat = ?, lon = ? WHERE id = ?', (request.json['latitude'], request.json['longitude'], session['user_id']), commit=True)
+    if 'user_id' not in session: return jsonify({"status": "unauthorized"}), 401
+    users_coll.update_one(
+        {"_id": ObjectId(session['user_id'])},
+        {"$set": {"lat": request.json['latitude'], "lon": request.json['longitude']}}
+    )
     return jsonify({"status": "success"})
 
 @app.route('/book_ride', methods=['POST'])
 def book_ride():
-    user = query_db('SELECT lat, lon FROM users WHERE id = ?', (session['user_id'],), one=True)
-    drivers = query_db('SELECT id, lat, lon FROM users WHERE role = "driver" AND is_online = 1')
+    user = users_coll.find_one({"_id": ObjectId(session['user_id'])})
+    drivers = users_coll.find({"role": "driver", "is_online": 1})
+    
     for d in drivers:
         if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 50.0:
-            query_db('DELETE FROM rides WHERE rider_id = ? AND status = "pending"', (session['user_id'],), commit=True)
-            query_db('INSERT INTO rides (rider_id, driver_id, status) VALUES (?, ?, "pending")', (session['user_id'], d['id']), commit=True)
+            rides_coll.delete_many({"rider_id": session['user_id'], "status": "pending"})
+            rides_coll.insert_one({
+                "rider_id": session['user_id'],
+                "driver_id": str(d['_id']),
+                "status": "pending"
+            })
             return jsonify({"status": "success"})
     return jsonify({"status": "none"})
 
 @app.route('/get_active_ride')
 def get_active_ride():
     uid = session['user_id']
-    # We check for the MOST RECENT ride for this user, including completed ones
-    res = query_db('''SELECT u.username, u.lat, u.lon, r.status FROM rides r 
-                       JOIN users u ON (CASE WHEN ?='driver' THEN r.rider_id ELSE r.driver_id END) = u.id 
-                       WHERE (r.rider_id = ? OR r.driver_id = ?) 
-                       ORDER BY r.id DESC LIMIT 1''', (session['role'], uid, uid), one=True)
-    if res:
-        return jsonify({"name": res['username'], "lat": res['lat'], "lon": res['lon'], "status": res['status']})
+    ride = rides_coll.find_one({
+        "$or": [{"rider_id": uid}, {"driver_id": uid}],
+        "status": {"$in": ["accepted", "completed"]}
+    }, sort=[("_id", -1)])
+    
+    if ride:
+        other_id = ride['driver_id'] if session['role'] == 'rider' else ride['rider_id']
+        other_user = users_coll.find_one({"_id": ObjectId(other_id)})
+        return jsonify({
+            "name": other_user['username'],
+            "lat": other_user['lat'],
+            "lon": other_user['lon'],
+            "status": ride['status']
+        })
     return jsonify({"status": "none"})
 
-@app.route('/accept_ride/<int:ride_id>', methods=['POST'])
+@app.route('/accept_ride/<string:ride_id>', methods=['POST'])
 def accept_ride(ride_id):
-    ride = query_db('SELECT rider_id FROM rides WHERE id = ?', (ride_id,), one=True)
+    ride = rides_coll.find_one({"_id": ObjectId(ride_id)})
     if ride:
-        query_db('DELETE FROM rides WHERE rider_id = ? AND status = "pending" AND id != ?', (ride['rider_id'], ride_id), commit=True)
-        query_db('UPDATE rides SET status = "accepted" WHERE id = ?', (ride_id,), commit=True)
+        rides_coll.delete_many({"rider_id": ride['rider_id'], "status": "pending", "_id": {"$ne": ObjectId(ride_id)}})
+        rides_coll.update_one({"_id": ObjectId(ride_id)}, {"$set": {"status": "accepted"}})
     return jsonify({"status": "success"})
 
 @app.route('/finish_trip', methods=['POST'])
 def finish_trip():
-    query_db("UPDATE rides SET status = 'completed' WHERE driver_id = ? AND status = 'accepted'", (session['user_id'],), commit=True)
+    rides_coll.update_one(
+        {"driver_id": session['user_id'], "status": "accepted"},
+        {"$set": {"status": "completed"}}
+    )
     return jsonify({"status": "success"})
 
 @app.route('/clear_completed_ride', methods=['POST'])
 def clear_completed_ride():
-    query_db("DELETE FROM rides WHERE (driver_id = ? OR rider_id = ?) AND status = 'completed'", (session['user_id'], session['user_id']), commit=True)
+    rides_coll.delete_many({
+        "$or": [{"driver_id": session['user_id']}, {"rider_id": session['user_id']}],
+        "status": "completed"
+    })
     return jsonify({"status": "success"})
 
 @app.route('/check_requests')
 def check_requests():
-    res = query_db('''SELECT r.id, u.username FROM rides r JOIN users u ON r.rider_id = u.id 
-                      WHERE r.driver_id = ? AND r.status = "pending"''', (session['user_id'],), one=True)
-    return jsonify({"ride_id": res['id'], "rider_name": res['username']}) if res else jsonify({"ride_id": None})
+    res = rides_coll.find_one({"driver_id": session['user_id'], "status": "pending"})
+    if res:
+        rider = users_coll.find_one({"_id": ObjectId(res['rider_id'])})
+        return jsonify({"ride_id": str(res['_id']), "rider_name": rider['username']})
+    return jsonify({"ride_id": None})
 
 @app.route('/toggle_status', methods=['POST'])
 def toggle_status():
-    user = query_db('SELECT is_online FROM users WHERE id = ?', (session['user_id'],), one=True)
-    new_val = 0 if user['is_online'] == 1 else 1
-    query_db('UPDATE users SET is_online = ? WHERE id = ?', (new_val, session['user_id']), commit=True)
+    user = users_coll.find_one({"_id": ObjectId(session['user_id'])})
+    new_val = 1 if user.get('is_online') == 0 else 0
+    users_coll.update_one({"_id": ObjectId(session['user_id'])}, {"$set": {"is_online": new_val}})
     return jsonify({"is_online": new_val})
 
-# --- ADMIN PANEL ---
 @app.route('/admin_panel')
 def admin_panel():
     if not session.get('is_admin'): return redirect(url_for('login'))
-    users = query_db('SELECT * FROM users')
-    # Fetch all ride history for the admin
-    rides = query_db('''SELECT r.id, u1.username as rider, u2.username as driver, r.status 
-                        FROM rides r 
-                        JOIN users u1 ON r.rider_id = u1.id 
-                        JOIN users u2 ON r.driver_id = u2.id 
-                        ORDER BY r.id DESC''')
-    return render_template('admin.html', all_users=users, all_rides=rides)
-
-@app.route('/edit_user/<int:user_id>', methods=['POST'])
-def edit_user(user_id):
-    if not session.get('is_admin'): return redirect(url_for('login'))
-    query_db('UPDATE users SET username=?, role=?, mobile=? WHERE id=?', 
-             (request.form.get('username'), request.form.get('role'), request.form.get('mobile'), user_id), commit=True)
-    return redirect(url_for('admin_panel'))
-
-@app.route('/delete_user/<int:user_id>', methods=['POST'])
-def delete_user(user_id):
-    if not session.get('is_admin'): return redirect(url_for('login'))
-    if user_id != session['user_id']:
-        query_db('DELETE FROM users WHERE id = ?', (user_id,), commit=True)
-    return redirect(url_for('admin_panel'))
+    all_users = list(users_coll.find())
+    for u in all_users: u['id'] = str(u['_id'])
+    
+    all_rides = []
+    for r in rides_coll.find().sort("_id", -1):
+        rdr = users_coll.find_one({"_id": ObjectId(r['rider_id'])})
+        drv = users_coll.find_one({"_id": ObjectId(r['driver_id'])})
+        all_rides.append({
+            "id": str(r['_id']),
+            "rider": rdr['username'] if rdr else "Deleted User",
+            "driver": drv['username'] if drv else "Deleted User",
+            "status": r['status']
+        })
+    return render_template('admin.html', all_users=all_users, all_rides=all_rides)
 
 @app.route('/logout')
 def logout(): 
     session.clear()
     return redirect(url_for('login'))
 
-if __name__ == '__main__': app.run(debug=True, host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    # For local testing, host='0.0.0.0' makes it accessible on your phone
+    app.run(debug=True, host='0.0.0.0', port=5000)

@@ -7,155 +7,134 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background-color: #0b0b0b; color: white; font-family: sans-serif; overflow-x: hidden; }
+        body { background: #0b0b0b; color: #fff; font-family: 'Segoe UI', sans-serif; }
         #map { height: 40vh; width: 100%; border-bottom: 3px solid #ff9800; }
-        .nav-header { background: #000; border-bottom: 1px solid #222; padding: 12px 20px; }
-        .card { border-radius: 12px; background-color: #1a1a1a !important; border: 1px solid #333; }
-        .btn-warning { background-color: #ff9800; border: none; color: black; font-weight: bold; }
-        .text-warning { color: #ff9800 !important; }
-        .otp-box { background: #000; border-radius: 8px; border: 1px solid #444; font-size: 2.5rem; letter-spacing: 8px; }
-        .status-pill { font-size: 0.75rem; padding: 4px 12px; border-radius: 50px; font-weight: bold; }
+        .card { background: #1a1a1a !important; border: 1px solid #333; border-radius: 15px; margin-top: -20px; z-index: 999; }
+        .btn-warning { background: #ff9800; color: #000; font-weight: 800; border: none; }
+        .otp-box { font-size: 2.5rem; color: #ff9800; background: #000; border: 1px solid #444; letter-spacing: 8px; }
+        .admin-panel { background: #000; border-top: 1px solid #ff9800; padding: 20px; margin-top: 50px; }
     </style>
 </head>
 <body>
 
 <div id="map"></div>
 
-<div class="nav-header d-flex justify-content-between align-items-center shadow">
-    <div>Hi, <span class="text-warning fw-bold">{{ username }}</span></div>
-    <div class="d-flex align-items-center">
-        {% if role == 'driver' %}
-        <span id="online-tag" class="status-pill bg-secondary me-3">OFFLINE</span>
-        {% endif %}
-        <a href="/logout" class="text-muted small text-decoration-none border-start ps-3 border-secondary">Logout</a>
+<div class="container mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="m-0">Hi, <span class="text-warning">{{ username }}</span></h4>
+        <a href="/logout" class="btn btn-sm btn-outline-danger">Logout</a>
     </div>
-</div>
 
-<div class="container mt-4 pb-5">
-    <div id="rider-ui" class="{% if role != 'rider' %}d-none{% endif %}">
-        <div id="booking-area">
-            <button class="btn btn-warning w-100 py-3 mb-4 shadow-lg" onclick="bookRide()">BOOK A RICKSHAW</button>
+    {% if role == 'rider' %}
+    <div id="rider-controls">
+        <div id="book-area">
+            <button class="btn btn-warning w-100 py-3 shadow-lg" onclick="bookRide()">BOOK NOW</button>
         </div>
+        <div id="ride-info" class="d-none card p-4 text-center shadow">
+            <small class="text-muted fw-bold">DRIVER IS COMING • OTP</small>
+            <div id="otp-display" class="otp-box my-3 py-2">0000</div>
+            <button class="btn btn-outline-secondary w-100" onclick="cancelRide()">Cancel Ride</button>
+        </div>
+    </div>
+    {% endif %}
 
-        <div id="active-ride-area" class="d-none">
-            <div class="card p-4 border-warning shadow-lg">
-                <p class="mb-2 text-center text-muted small fw-bold">GIVE THIS OTP TO DRIVER:</p>
-                <div id="otp-display" class="otp-box text-center text-warning fw-bold py-3 mb-3">----</div>
-                <div id="ride-status" class="badge bg-warning text-dark w-100 py-2 mb-3">PENDING</div>
-                <button class="btn btn-outline-danger w-100 fw-bold" onclick="cancelRide()">CANCEL RIDE</button>
+    {% if role == 'driver' %}
+    <div id="driver-controls">
+        <button id="online-btn" class="btn btn-success w-100 py-3 mb-3" onclick="toggleOnline()">GO ONLINE</button>
+        <div id="job-card" class="d-none card p-4">
+            <h5 class="text-warning mb-3">PICKUP: <span id="rider-name" class="text-white">---</span></h5>
+            <div id="verify-area">
+                <input type="number" id="otp-input" class="form-control text-center mb-3 bg-dark text-white border-secondary" placeholder="Enter OTP">
+                <button class="btn btn-warning w-100" onclick="verifyOTP()">VERIFY & START</button>
+            </div>
+            <div id="finish-area" class="d-none">
+                <div class="alert alert-success">TRIP IN PROGRESS</div>
+                <button class="btn btn-success w-100" onclick="location.reload()">COMPLETE TRIP</button>
             </div>
         </div>
     </div>
-
-    <div id="driver-ui" class="{% if role != 'driver' %}d-none{% endif %}">
-        <button id="status-btn" class="btn btn-success w-100 py-3 mb-4 shadow" onclick="toggleStatus()">GO ONLINE</button>
-        <div id="driver-active-area" class="d-none">
-            <div class="card p-4 border-warning shadow-lg">
-                <h6 class="text-warning small mb-3">RIDER: <span id="rider-name" class="text-white">---</span></h6>
-                <div id="otp-input-section">
-                    <input type="number" id="otp-input" class="form-control form-control-lg text-center mb-3 bg-dark text-white border-secondary" placeholder="Enter OTP">
-                    <button class="btn btn-warning w-100 py-2 mb-2" onclick="verifyOTP()">START TRIP</button>
-                </div>
-                <div id="finish-section" class="d-none">
-                    <button class="btn btn-success w-100 py-3 fw-bold" onclick="finishTrip()">FINISH TRIP</button>
-                </div>
-                <button class="btn btn-sm btn-link text-danger w-100 mt-3 text-decoration-none" onclick="cancelRide()">Cancel/Reject</button>
-            </div>
-        </div>
-    </div>
+    {% endif %}
 
     {% if is_admin %}
-    <div class="mt-5 pt-4 border-top border-secondary">
-        <h5 class="text-warning mb-3">ADMIN TOOLS</h5>
-        <button class="btn btn-danger w-100 py-3" onclick="resetSystem()">RESET ALL SYSTEM RIDES</button>
+    <div class="admin-panel shadow">
+        <h5 class="text-warning mb-3">SYSTEM ADMIN</h5>
+        <button class="btn btn-danger w-100 mb-3" onclick="resetSystem()">PURGE ALL RIDES</button>
+        <div id="admin-user-list" class="small">Loading system data...</div>
     </div>
     {% endif %}
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-    var map = L.map('map', { zoomControl: false }).setView([30.47, 74.51], 15);
+    var map = L.map('map', {zoomControl: false}).setView([30.47, 74.51], 14);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
-    var userMarker = L.marker([0, 0]).addTo(map);
-    var partnerMarker = L.marker([0, 0], {opacity: 0}).addTo(map);
+    var myMarker = L.marker([0,0]).addTo(map);
+    var partnerMarker = L.marker([0,0], {opacity: 0}).addTo(map);
+    var online = false;
 
-    function updateLocation() {
-        navigator.geolocation.getCurrentPosition(pos => {
-            const { latitude, longitude } = pos.coords;
-            userMarker.setLatLng([latitude, longitude]);
+    function geo() {
+        navigator.geolocation.getCurrentPosition(p => {
+            const {latitude, longitude} = p.coords;
+            myMarker.setLatLng([latitude, longitude]);
             map.panTo([latitude, longitude]);
             fetch('/update_location', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ latitude, longitude })
+                body: JSON.stringify({latitude, longitude, online: online})
             });
         });
     }
 
     function sync() {
         fetch('/get_active_ride').then(r => r.json()).then(data => {
-            const role = "{{ role }}";
             if (data.status !== "none") {
                 if (data.lat) partnerMarker.setLatLng([data.lat, data.lon]).setOpacity(1);
-                if (role === "rider") {
-                    document.getElementById('booking-area').classList.add('d-none');
-                    document.getElementById('active-ride-area').classList.remove('d-none');
-                    document.getElementById('otp-display').innerText = data.otp || "----";
-                    document.getElementById('ride-status').innerText = data.status.toUpperCase();
-                } else {
-                    document.getElementById('driver-active-area').classList.remove('d-none');
+                {% if role == 'rider' %}
+                    document.getElementById('book-area').classList.add('d-none');
+                    document.getElementById('ride-info').classList.remove('d-none');
+                    document.getElementById('otp-display').innerText = data.otp;
+                {% else %}
+                    document.getElementById('job-card').classList.remove('d-none');
                     document.getElementById('rider-name').innerText = data.name;
                     if (data.status === 'started') {
-                        document.getElementById('otp-input-section').classList.add('d-none');
-                        document.getElementById('finish-section').classList.remove('d-none');
-                    } else {
-                        document.getElementById('otp-input-section').classList.remove('d-none');
-                        document.getElementById('finish-section').classList.add('d-none');
+                        document.getElementById('verify-area').classList.add('d-none');
+                        document.getElementById('finish-area').classList.remove('d-none');
                     }
-                }
+                {% endif %}
             } else {
                 partnerMarker.setOpacity(0);
-                if (role === "rider") {
-                    document.getElementById('booking-area').classList.remove('d-none');
-                    document.getElementById('active-ride-area').classList.add('d-none');
-                } else {
-                    document.getElementById('driver-active-area').classList.add('d-none');
-                }
+                if (document.getElementById('book-area')) document.getElementById('book-area').classList.remove('d-none');
+                if (document.getElementById('ride-info')) document.getElementById('ride-info').classList.add('d-none');
+                if (document.getElementById('job-card')) document.getElementById('job-card').classList.add('d-none');
             }
         });
     }
 
-    function toggleStatus() {
-        fetch('/toggle_status', { method: 'POST' }).then(r => r.json()).then(data => {
-            const btn = document.getElementById('status-btn');
-            const tag = document.getElementById('online-tag');
-            if (data.is_online) {
-                btn.innerText = "GO OFFLINE"; btn.className = "btn btn-danger w-100 py-3 mb-4";
-                tag.innerText = "ONLINE"; tag.className = "status-pill bg-success me-3";
-            } else {
-                btn.innerText = "GO ONLINE"; btn.className = "btn btn-success w-100 py-3 mb-4";
-                tag.innerText = "OFFLINE"; tag.className = "status-pill bg-secondary me-3";
-            }
-        });
-    }
-
-    function verifyOTP() {
-        const val = document.getElementById('otp-input').value;
-        fetch('/verify_ride_otp', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ otp: val.toString().trim() })
-        }).then(r => r.json()).then(d => d.success ? sync() : alert(d.message));
+    function toggleOnline() {
+        online = !online;
+        const b = document.getElementById('online-btn');
+        b.innerText = online ? "OFFLINE" : "ONLINE";
+        b.className = online ? "btn btn-danger w-100 py-3 mb-3" : "btn btn-success w-100 py-3 mb-3";
     }
 
     function bookRide() { fetch('/book_ride', {method: 'POST'}).then(() => sync()); }
-    function cancelRide() { fetch('/cancel_ride', {method: 'POST'}).then(() => sync()); }
-    function finishTrip() { fetch('/finish_trip', {method: 'POST'}).then(() => location.reload()); }
-    function resetSystem() { if(confirm("Reset All?")) fetch('/admin/reset_system', {method:'POST'}).then(() => location.reload()); }
+    function verifyOTP() {
+        const otp = document.getElementById('otp-input').value;
+        fetch('/verify_ride_otp', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({otp})})
+        .then(r => r.json()).then(d => d.success ? sync() : alert("INVALID OTP"));
+    }
+    function resetSystem() { if(confirm("Clear all?")) fetch('/admin_reset', {method: 'POST'}).then(() => location.reload()); }
 
-    setInterval(sync, 4000);
-    setInterval(updateLocation, 5000);
-    sync(); updateLocation();
+    {% if is_admin %}
+    setInterval(() => {
+        fetch('/admin_data').then(r => r.json()).then(d => {
+            document.getElementById('admin-user-list').innerHTML = d.users.map(u => `<div>${u.username} - ${u.role} (${u.is_online ? 'ON' : 'OFF'})</div>`).join('');
+        });
+    }, 5000);
+    {% endif %}
+
+    setInterval(geo, 5000); geo();
+    setInterval(sync, 4000); sync();
 </script>
 </body>
 </html>

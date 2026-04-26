@@ -14,8 +14,8 @@
         .btn-main { background: #ffc107; color: black; font-weight: bold; padding: 12px; border-radius: 15px; width: 100%; border: none; font-size: 1.1rem; }
         .status-box { background: #2a2a35; padding: 12px; border-radius: 15px; margin-top: 10px; border-left: 4px solid #ffc107; }
         
-        /* NAVIGATION LINE STYLING (Google Maps Style) */
-        .leaflet-routing-container { display: none !important; } /* Hides text instructions */
+        /* NAVIGATION LINE STYLING */
+        .leaflet-routing-container { display: none !important; }
         path.leaflet-interactive { 
             stroke: #007bff; 
             stroke-width: 7; 
@@ -77,7 +77,6 @@
 
         function updateRouting(myPos, targetPos) {
             if (routingControl) map.removeControl(routingControl);
-            
             routingControl = L.Routing.control({
                 waypoints: [L.latLng(myPos[0], myPos[1]), L.latLng(targetPos[0], targetPos[1])],
                 routeWhileDragging: false,
@@ -88,7 +87,6 @@
                 var sum = e.routes[0].summary;
                 var mins = Math.round(sum.totalTime / 60);
                 var km = (sum.totalDistance / 1000).toFixed(1);
-                
                 if(document.getElementById('eta-tag')) document.getElementById('eta-tag').innerText = "ETA: " + mins + " mins";
                 if(document.getElementById('dist-tag')) document.getElementById('dist-tag').innerText = km + " km";
                 if(document.getElementById('driver-eta')) document.getElementById('driver-eta').innerText = "ETA: " + mins + " mins";
@@ -105,20 +103,18 @@
                     if(d.status === 'accepted') {
                         otherMarker.setLatLng([d.lat, d.lon]).setOpacity(1);
                         updateRouting([lt, ln], [d.lat, d.lon]);
-                        
-                        // Show Rider UI
                         if(document.getElementById('ride-info')) document.getElementById('ride-info').classList.remove('d-none');
                         if(document.getElementById('bookBtn')) document.getElementById('bookBtn').classList.add('d-none');
                         if(document.getElementById('msg')) document.getElementById('msg').innerText = "✅ RICKSHAW ARRIVING";
                         if(document.getElementById('drv-name')) document.getElementById('drv-name').innerText = d.name;
-                        
-                        // Show Driver UI
                         if(document.getElementById('active-ride-box')) {
                             document.getElementById('active-ride-box').classList.remove('d-none');
                             document.getElementById('rider-name-display').innerText = d.name;
                         }
-                    } else {
-                        if (routingControl) { map.removeControl(routingControl); routingControl = null; otherMarker.setOpacity(0); }
+                    } else if (routingControl) { 
+                        map.removeControl(routingControl); 
+                        routingControl = null; 
+                        otherMarker.setOpacity(0); 
                     }
                 });
             });

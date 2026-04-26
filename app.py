@@ -52,7 +52,7 @@ def signup():
             conn.commit()
             conn.close()
             return redirect(url_for('login'))
-        except: return "Signup Error: Email might already exist."
+        except: return "Signup Error: Email exists."
     return render_template('signup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -103,14 +103,19 @@ def toggle_status():
 
 @app.route('/book_ride', methods=['POST'])
 def book_ride():
+    uid = session.get('user_id')
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT lat, lon FROM users WHERE id = ?', (session['user_id'],))
+    cursor.execute('SELECT lat, lon FROM users WHERE id = ?', (uid,))
     r_lat, r_lon = cursor.fetchone()
+    
+    # Large 50km radius for reliable testing
     drivers = conn.execute('SELECT id, lat, lon FROM users WHERE role = "driver" AND is_online = 1').fetchall()
     for d_id, d_lat, d_lon in drivers:
-        if get_distance(r_lat, r_lon, d_lat, d_lon) <= 10.0: # 10km range
-            cursor.execute('INSERT INTO rides (rider_id, driver_id) VALUES (?, ?)', (session['user_id'], d_id))
+        if get_distance(r_lat, r_lon, d_lat, d_lon) <= 50.0:
+            # Clean up old rides first
+            cursor.execute("DELETE FROM rides WHERE rider_id = ? AND status != 'accepted'", (uid,))
+            cursor.execute('INSERT INTO rides (rider_id, driver_id, status) VALUES (?, ?, "pending")', (uid, d_id))
             conn.commit()
             conn.close()
             return jsonify({"status": "success"})
@@ -128,8 +133,11 @@ def cancel_ride():
 
 @app.route('/check_requests')
 def check_requests():
+    did = session.get('user_id')
     conn = sqlite3.connect('users.db')
-    res = conn.execute('SELECT rides.id, users.username FROM rides JOIN users ON rides.rider_id = users.id WHERE driver_id = ? AND status = "pending"', (session['user_id'],)).fetchone()
+    res = conn.execute('''SELECT rides.id, users.username FROM rides 
+                          JOIN users ON rides.rider_id = users.id 
+                          WHERE rides.driver_id = ? AND rides.status = "pending"''', (did,)).fetchone()
     conn.close()
     return jsonify({"ride_id": res[0], "rider_name": res[1]}) if res else jsonify({"ride_id": None})
 

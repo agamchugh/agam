@@ -7,13 +7,12 @@ app = Flask(__name__)
 app.secret_key = 'agam_rickshaw_secure_key'
 
 # --- DATABASE PATH FIX ---
-# This ensures the database is always in the same folder as app.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'users.db')
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row # This makes results easier to handle
+    conn.row_factory = sqlite3.Row 
     return conn
 
 def init_db():
@@ -148,6 +147,20 @@ def finish_trip():
     conn = get_db_connection()
     conn.execute("UPDATE rides SET status = 'completed' WHERE driver_id = ? AND status = 'accepted'", (uid,))
     conn.commit(); conn.close()
+    return jsonify({"status": "success"})
+
+# --- NEW ROUTE TO PREVENT STICKING ---
+@app.route('/clear_completed_ride', methods=['POST'])
+def clear_completed_ride():
+    uid = session.get('user_id')
+    role = session.get('role')
+    conn = get_db_connection()
+    if role == 'driver':
+        conn.execute("DELETE FROM rides WHERE driver_id = ? AND status = 'completed'", (uid,))
+    else:
+        conn.execute("DELETE FROM rides WHERE rider_id = ? AND status = 'completed'", (uid,))
+    conn.commit()
+    conn.close()
     return jsonify({"status": "success"})
 
 @app.route('/check_requests')

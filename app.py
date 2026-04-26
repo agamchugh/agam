@@ -17,12 +17,6 @@ db = client['rickshaw_db']
 users_coll = db['users']
 rides_coll = db['rides']
 
-def get_distance(lat1, lon1, lat2, lon2):
-    R = 6371
-    dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-    return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
-
 @app.route('/')
 def home():
     if 'user_id' in session: return redirect(url_for('dashboard'))
@@ -41,28 +35,33 @@ def login():
             return redirect(url_for('dashboard'))
     return render_template('login.html')
 
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
-    return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
+    return render_template('dashboard.html', username=session['username'], role=session['role'])
 
 @app.route('/get_active_ride')
 def get_active_ride():
     if 'user_id' not in session: return jsonify({"status": "none"})
     uid = session['user_id']
     role = session['role']
-    
-    # Filter based on role to prevent overlap
     query = {"rider_id": uid} if role == "rider" else {"driver_id": uid}
     ride = rides_coll.find_one({**query, "status": {"$in": ["pending", "accepted", "started"]}}, sort=[("_id", -1)])
     
     if ride:
         other_id = ride['driver_id'] if role == 'rider' else ride['rider_id']
-        other_user = users_coll.find_one({"_id": ObjectId(other_id)})
+        other_user = users_coll.find_one({"_id": ObjectId(other_id)}) if other_id else None
         return jsonify({
-            "name": other_user['username'] if other_user else "Partner",
             "status": ride['status'],
-            "otp": str(ride.get('otp')).strip() if role == 'rider' else None
+            "name": other_user['username'] if other_user else "Searching...",
+            "otp": str(ride.get('otp')).strip() if role == 'rider' else None,
+            "lat": other_user.get('lat') if other_user else None,
+            "lon": other_user.get('lon') if other_user else None
         })
     return jsonify({"status": "none"})
 
@@ -75,9 +74,21 @@ def verify_ride_otp():
         return jsonify({"success": True})
     return jsonify({"success": False, "message": "Wrong OTP!"})
 
+@app.route('/update_location', methods=['POST'])
+def update_location():
+    data = request.json
+    users_coll.update_one({"_id": ObjectId(session['user_id'])}, {"$set": {"lat": data['latitude'], "lon": data['longitude']}})
+    return jsonify({"status": "ok"})
+
 @app.route('/cancel_ride', methods=['POST'])
 def cancel_ride():
     rides_coll.delete_many({"$or": [{"rider_id": session['user_id']}, {"driver_id": session['user_id']}], "status": {"$in": ["pending", "accepted"]}})
     return jsonify({"status": "success"})
 
-# ... (keep other routes like signup, toggle_status, finish_trip as they were)
+@app.route('/finish_trip', methods=['POST'])
+def finish_trip():
+    rides_coll.update_one({"driver_id": session['user_id'], "status": "started"}, {"$set": {"status": "completed"}})
+    return jsonify({"status": "success"})
+
+if __name__ == '__main__':
+    app.run(debug=True)

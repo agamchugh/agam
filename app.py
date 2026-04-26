@@ -6,6 +6,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 app = Flask(__name__)
 app.secret_key = 'agam_rickshaw_secure_key'
 
+# --- DATABASE INIT ---
 def init_db():
     conn = sqlite3.connect('users.db')
     cursor = conn.cursor()
@@ -31,12 +32,15 @@ def init_db():
 
 init_db()
 
+# --- HELPER FUNCTIONS ---
 def get_distance(lat1, lon1, lat2, lon2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
+
+# --- ROUTES ---
 
 @app.route('/')
 def home():
@@ -63,15 +67,51 @@ def login():
         user = conn.execute('SELECT * FROM users WHERE email = ? AND password = ?', (email, pwd)).fetchone()
         conn.close()
         if user:
-            session.update({'user_id': user[0], 'username': user[1], 'role': user[5]})
+            # SECURITY LOCK: Only your email gets 'is_admin' = True
+            is_admin_user = (user[2] == 'agamchugh153@gmail.com')
+            
+            session.update({
+                'user_id': user[0], 
+                'username': user[1], 
+                'role': user[5],
+                'is_admin': is_admin_user
+            })
             return redirect(url_for('dashboard'))
     return render_template('login.html')
 
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
-    return render_template('dashboard.html', username=session['username'], role=session['role'])
+    return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
 
+# --- ADMIN PANEL (SECURE) ---
+@app.route('/admin_panel')
+def admin_panel():
+    # If someone tries to type the URL manually, this block kicks them out
+    if not session.get('is_admin'):
+        return "<h1>403 Forbidden</h1><p>Only Agam can see this page.</p>", 403
+        
+    conn = sqlite3.connect('users.db')
+    users = conn.execute('SELECT id, username, email, role, is_online FROM users').fetchall()
+    rides = conn.execute('''
+        SELECT rides.id, u1.username, u2.username, rides.status 
+        FROM rides 
+        JOIN users u1 ON rides.rider_id = u1.id 
+        JOIN users u2 ON rides.driver_id = u2.id
+    ''').fetchall()
+    conn.close()
+    return render_template('admin.html', users=users, rides=rides)
+
+@app.route('/delete_user/<int:uid>')
+def delete_user(uid):
+    if session.get('is_admin'):
+        conn = sqlite3.connect('users.db')
+        conn.execute('DELETE FROM users WHERE id = ?', (uid,))
+        conn.commit()
+        conn.close()
+    return redirect(url_for('admin_panel'))
+
+# --- RIDE & LOCATION LOGIC (Keep existing) ---
 @app.route('/update_location', methods=['POST'])
 def update_location():
     data = request.json
@@ -84,11 +124,9 @@ def update_location():
 @app.route('/get_nearby_drivers')
 def get_nearby_drivers():
     conn = sqlite3.connect('users.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT username, lat, lon FROM users WHERE role = "driver" AND is_online = 1 AND id != ?', (session.get('user_id'),))
-    drivers = [{"name": r[0], "lat": r[1], "lon": r[2]} for r in cursor.fetchall()]
+    drivers = conn.execute('SELECT username, lat, lon FROM users WHERE role = "driver" AND is_online = 1 AND id != ?', (session.get('user_id', 0),)).fetchall()
     conn.close()
-    return jsonify(drivers)
+    return jsonify([{"name": r[0], "lat": r[1], "lon": r[2]} for r in drivers])
 
 @app.route('/toggle_status', methods=['POST'])
 def toggle_status():
@@ -108,12 +146,9 @@ def book_ride():
     cursor = conn.cursor()
     cursor.execute('SELECT lat, lon FROM users WHERE id = ?', (uid,))
     r_lat, r_lon = cursor.fetchone()
-    
-    # Large 50km radius for reliable testing
     drivers = conn.execute('SELECT id, lat, lon FROM users WHERE role = "driver" AND is_online = 1').fetchall()
     for d_id, d_lat, d_lon in drivers:
         if get_distance(r_lat, r_lon, d_lat, d_lon) <= 50.0:
-            # Clean up old rides first
             cursor.execute("DELETE FROM rides WHERE rider_id = ? AND status != 'accepted'", (uid,))
             cursor.execute('INSERT INTO rides (rider_id, driver_id, status) VALUES (?, ?, "pending")', (uid, d_id))
             conn.commit()

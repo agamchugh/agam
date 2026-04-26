@@ -48,7 +48,6 @@ def dashboard():
 @app.route('/update_location', methods=['POST'])
 def update_location():
     data = request.json
-    # Update location AND online status in one go
     users_coll.update_one(
         {"_id": ObjectId(session['user_id'])},
         {"$set": {"lat": data['latitude'], "lon": data['longitude'], "is_online": data.get('online', False)}}
@@ -60,10 +59,6 @@ def book_ride():
     driver = users_coll.find_one({"role": "driver", "is_online": True})
     if not driver:
         return jsonify({"status": "no_drivers"})
-
-    existing = rides_coll.find_one({"rider_id": session['user_id'], "status": {"$in": ["accepted", "started"]}})
-    if existing: return jsonify({"status": "success"})
-
     otp = str(random.randint(1000, 9999))
     rides_coll.insert_one({
         "rider_id": session['user_id'],
@@ -78,10 +73,8 @@ def get_active_ride():
     uid = session.get('user_id')
     role = session.get('role')
     if not uid: return jsonify({"status": "none"})
-
     query = {"rider_id": uid} if role == "rider" else {"driver_id": uid}
     ride = rides_coll.find_one({**query, "status": {"$in": ["accepted", "started"]}}, sort=[("_id", -1)])
-    
     if ride:
         other_id = ride['driver_id'] if role == 'rider' else ride['rider_id']
         other = users_coll.find_one({"_id": ObjectId(other_id)})
@@ -103,12 +96,15 @@ def verify_otp():
         return jsonify({"success": True})
     return jsonify({"success": False})
 
-@app.route('/admin_data')
-def admin_data():
-    if not session.get('is_admin'): return jsonify({"users": []})
-    users = list(users_coll.find({}, {"password": 0}))
-    for u in users: u['_id'] = str(u['_id'])
-    return jsonify({"users": users})
+@app.route('/complete_ride', methods=['POST'])
+def complete():
+    rides_coll.update_many({"driver_id": session['user_id'], "status": "started"}, {"$set": {"status": "completed"}})
+    return jsonify({"status": "success"})
+
+@app.route('/cancel_ride', methods=['POST'])
+def cancel():
+    rides_coll.delete_many({"rider_id": session['user_id'], "status": "accepted"})
+    return jsonify({"status": "success"})
 
 @app.route('/admin_reset', methods=['POST'])
 def admin_reset():

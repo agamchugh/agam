@@ -3,29 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rickshaw Live</title>
+    <title>Rickshaw Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { background: #121212; color: white; font-family: sans-serif; overflow: hidden; height: 100vh; }
-        #map { height: 60%; width: 100%; border-bottom: 4px solid #ffc107; }
-        .ui-container { height: 40%; padding: 15px; background: #1e1e26; border-radius: 30px 30px 0 0; position: relative; z-index: 1000; box-shadow: 0 -10px 20px rgba(0,0,0,0.5); }
+        body { background: #121212; color: white; overflow: hidden; height: 100vh; font-family: sans-serif; }
+        #map { height: 65%; width: 100%; border-bottom: 4px solid #ffc107; }
+        .ui-panel { height: 35%; padding: 15px; background: #1e1e26; border-radius: 30px 30px 0 0; position: relative; z-index: 1000; box-shadow: 0 -10px 20px rgba(0,0,0,0.5); }
         .btn-main { background: #ffc107; color: black; font-weight: bold; padding: 12px; border-radius: 15px; width: 100%; border: none; font-size: 1.1rem; }
-        .driver-marker { filter: hue-rotate(140deg); }
         .status-box { background: #2a2a35; padding: 12px; border-radius: 15px; margin-top: 10px; border-left: 4px solid #ffc107; }
+        .driver-marker { filter: hue-rotate(140deg); }
     </style>
 </head>
 <body>
     <div id="map"></div>
-    <div class="ui-container">
+    <div class="ui-panel">
         <div class="d-flex justify-content-between align-items-center mb-2">
             <h6 class="mb-0">Hi, <span class="text-warning">{{ username }}</span></h6>
+            {% if is_admin %}<a href="/admin_panel" class="btn btn-info btn-sm fw-bold">ADMIN</a>{% endif %}
             <span id="stat-badge" class="badge bg-success">ONLINE</span>
         </div>
 
         {% if role == 'rider' %}
         <div id="rider-ui">
-            <button id="bookBtn" class="btn-main">📍 REQUEST RICKSHAW</button>
+            <button id="bookBtn" class="btn-main shadow">📍 REQUEST RICKSHAW</button>
             <div id="ride-info" class="status-box d-none">
                 <div id="msg" class="small text-secondary">Searching...</div>
                 <div id="drv-name" class="fw-bold text-warning"></div>
@@ -35,7 +36,7 @@
         </div>
         {% else %}
         <div id="driver-ui">
-            <button id="offlineBtn" class="btn-main" style="background:#dc3545; color:white;">GO OFFLINE</button>
+            <button id="offlineBtn" class="btn-main mb-2" style="background:#dc3545; color:white;">GO OFFLINE</button>
             <div id="req-box" class="status-box d-none" style="background:#28a745; color:white; border:none;">
                 <p class="mb-1">New Request: <span id="rider-name" class="fw-bold"></span></p>
                 <div class="d-flex gap-2">
@@ -71,7 +72,7 @@
                 if("{{role}}" === "rider") {
                     fetch('/get_nearby_drivers').then(r => r.json()).then(ds => {
                         ds.forEach(d => {
-                            if(!drvMarkers[d.name]) drvMarkers[d.name] = L.marker([d.lat, d.lon], {icon: liveIcon}).addTo(map);
+                            if(!drvMarkers[d.name]) drvMarkers[d.name] = L.marker([d.lat, d.lon], {icon: liveIcon}).addTo(map).bindTooltip(d.name);
                             else drvMarkers[d.name].setLatLng([d.lat, d.lon]);
                         });
                     });

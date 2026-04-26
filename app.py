@@ -9,9 +9,7 @@ app.secret_key = 'agam_rickshaw_secure_key'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'users.db')
 
-# --- DATABASE UTILITY ---
 def query_db(query, args=(), one=False, commit=False):
-    """Connects, executes, and closes automatically to prevent lag/locks."""
     with sqlite3.connect(DB_PATH, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.execute(query, args)
@@ -37,7 +35,6 @@ def get_distance(lat1, lon1, lat2, lon2):
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a)))
 
-# --- ROUTES ---
 @app.route('/')
 def home(): return redirect(url_for('login'))
 
@@ -48,7 +45,7 @@ def signup():
         try:
             query_db('INSERT INTO users (username, email, mobile, password, role) VALUES (?, ?, ?, ?, ?)', data, commit=True)
             return redirect(url_for('login'))
-        except: return "Error: Email exists."
+        except: return "Error: User exists."
     return render_template('signup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -56,7 +53,8 @@ def login():
     if request.method == 'POST':
         user = query_db('SELECT * FROM users WHERE email = ? AND password = ?', (request.form.get('email'), request.form.get('password')), one=True)
         if user:
-            session.update({'user_id': user['id'], 'username': user['username'], 'role': user['role'], 'is_admin': (user['email'] == 'agamchugh153@gmail.com')})
+            is_adm = (user['email'] == 'agamchugh153@gmail.com')
+            session.update({'user_id': user['id'], 'username': user['username'], 'role': user['role'], 'is_admin': is_adm})
             return redirect(url_for('dashboard'))
     return render_template('login.html')
 
@@ -75,7 +73,7 @@ def book_ride():
     user = query_db('SELECT lat, lon FROM users WHERE id = ?', (session['user_id'],), one=True)
     drivers = query_db('SELECT id, lat, lon FROM users WHERE role = "driver" AND is_online = 1')
     for d in drivers:
-        if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 10.5: # 1.5 KM RANGE
+        if get_distance(user['lat'], user['lon'], d['lat'], d['lon']) <= 50.0:
             query_db('DELETE FROM rides WHERE rider_id = ? AND status = "pending"', (session['user_id'],), commit=True)
             query_db('INSERT INTO rides (rider_id, driver_id, status) VALUES (?, ?, "pending")', (session['user_id'], d['id']), commit=True)
             return jsonify({"status": "success"})
@@ -121,6 +119,28 @@ def toggle_status():
     new_val = 0 if user['is_online'] == 1 else 1
     query_db('UPDATE users SET is_online = ? WHERE id = ?', (new_val, session['user_id']), commit=True)
     return jsonify({"is_online": new_val})
+
+# --- ADMIN ROUTES ---
+@app.route('/admin_panel')
+def admin_panel():
+    if not session.get('is_admin'): return redirect(url_for('login'))
+    users = query_db('SELECT * FROM users')
+    return render_template('admin.html', all_users=users)
+
+@app.route('/edit_user/<int:user_id>', methods=['POST'])
+def edit_user(user_id):
+    if not session.get('is_admin'): return redirect(url_for('login'))
+    query_db('UPDATE users SET username=?, role=?, mobile=? WHERE id=?', 
+             (request.form.get('username'), request.form.get('role'), request.form.get('mobile'), user_id), commit=True)
+    return redirect(url_for('admin_panel'))
+
+@app.route('/delete_user/<int:user_id>', methods=['POST'])
+def delete_user(user_id):
+    if not session.get('is_admin'): return redirect(url_for('login'))
+    if user_id != session['user_id']: # Prevent self-delete
+        query_db('DELETE FROM users WHERE id = ?', (user_id,), commit=True)
+        query_db('DELETE FROM rides WHERE rider_id = ? OR driver_id = ?', (user_id, user_id), commit=True)
+    return redirect(url_for('admin_panel'))
 
 @app.route('/logout')
 def logout(): 

@@ -17,7 +17,6 @@ db = client['rickshaw_db']
 users_coll = db['users']
 rides_coll = db['rides']
 
-# Helper to calculate distance for booking logic
 def get_distance(lat1, lon1, lat2, lon2):
     R = 6371
     dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
@@ -38,12 +37,7 @@ def login():
         if user:
             session.permanent = True
             is_adm = (email == 'agamchugh153@gmail.com')
-            session.update({
-                'user_id': str(user['_id']), 
-                'username': user['username'], 
-                'role': user['role'], 
-                'is_admin': is_adm
-            })
+            session.update({'user_id': str(user['_id']), 'username': user['username'], 'role': user['role'], 'is_admin': is_adm})
             return redirect(url_for('dashboard'))
     return render_template('login.html')
 
@@ -55,90 +49,71 @@ def logout():
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
-    return render_template('dashboard.html', 
-                           username=session['username'], 
-                           role=session['role'], 
-                           is_admin=session.get('is_admin'))
+    return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
 
 @app.route('/update_location', methods=['POST'])
 def update_location():
-    if 'user_id' not in session: return jsonify({"status": "error"}), 401
     data = request.json
     users_coll.update_one(
         {"_id": ObjectId(session['user_id'])},
-        {"$set": {"lat": data['latitude'], "lon": data['longitude'], "last_seen": data.get('timestamp')}}
+        {"$set": {"lat": data['latitude'], "lon": data['longitude'], "is_online": data.get('online', True)}}
     )
-    return jsonify({"status": "ok"})
-
-@app.route('/toggle_status', methods=['POST'])
-def toggle_status():
-    user = users_coll.find_one({"_id": ObjectId(session['user_id'])})
-    new_status = not user.get('is_online', False)
-    users_coll.update_one({"_id": ObjectId(session['user_id'])}, {"$set": {"is_online": new_status}})
-    return jsonify({"is_online": new_status})
+    return jsonify({"status": "success"})
 
 @app.route('/book_ride', methods=['POST'])
 def book_ride():
-    rider_id = session['user_id']
-    rider_user = users_coll.find_one({"_id": ObjectId(rider_id)})
+    rider = users_coll.find_one({"_id": ObjectId(session['user_id'])})
+    # Find closest online driver
+    drivers = list(users_coll.find({"role": "driver", "is_online": True}))
+    if not drivers: return jsonify({"status": "no_drivers"})
     
-    # Simple logic: find any online driver
-    driver = users_coll.find_one({"role": "driver", "is_online": True})
-    if driver:
-        otp = random.randint(1000, 9999)
-        ride_id = rides_coll.insert_one({
-            "rider_id": rider_id,
-            "driver_id": str(driver['_id']),
-            "otp": str(otp),
-            "status": "accepted"
-        }).inserted_id
-        return jsonify({"status": "success", "ride_id": str(ride_id)})
-    return jsonify({"status": "no_drivers"})
+    best_driver = min(drivers, key=lambda d: get_distance(rider['lat'], rider['lon'], d.get('lat',0), d.get('lon',0)))
+    otp = str(random.randint(1000, 9999))
+    rides_coll.insert_one({
+        "rider_id": session['user_id'],
+        "driver_id": str(best_driver['_id']),
+        "otp": otp,
+        "status": "accepted"
+    })
+    return jsonify({"status": "success"})
 
 @app.route('/get_active_ride')
 def get_active_ride():
-    if 'user_id' not in session: return jsonify({"status": "none"})
     uid = session['user_id']
     role = session['role']
     query = {"rider_id": uid} if role == "rider" else {"driver_id": uid}
-    ride = rides_coll.find_one({**query, "status": {"$in": ["pending", "accepted", "started"]}}, sort=[("_id", -1)])
-    
+    ride = rides_coll.find_one({**query, "status": {"$in": ["accepted", "started"]}}, sort=[("_id", -1)])
     if ride:
         other_id = ride['driver_id'] if role == 'rider' else ride['rider_id']
-        other_user = users_coll.find_one({"_id": ObjectId(other_id)})
+        other = users_coll.find_one({"_id": ObjectId(other_id)})
         return jsonify({
-            "status": ride['status'],
-            "name": other_user['username'] if other_user else "Partner",
-            "otp": str(ride.get('otp')).strip() if role == 'rider' else None,
-            "lat": other_user.get('lat') if other_user else None,
-            "lon": other_user.get('lon') if other_user else None
+            "status": ride['status'], "name": other['username'], "otp": ride['otp'],
+            "lat": other.get('lat'), "lon": other.get('lon')
         })
     return jsonify({"status": "none"})
 
 @app.route('/verify_ride_otp', methods=['POST'])
-def verify_ride_otp():
-    entered_otp = str(request.json.get('otp', '')).strip()
-    ride = rides_coll.find_one({"driver_id": session['user_id'], "status": "accepted"})
-    if ride and str(ride.get('otp')).strip() == entered_otp:
+def verify_otp():
+    otp = str(request.json.get('otp')).strip()
+    ride = rides_coll.find_one({"driver_id": session['user_id'], "status": "accepted", "otp": otp})
+    if ride:
         rides_coll.update_one({"_id": ride['_id']}, {"$set": {"status": "started"}})
         return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Wrong OTP!"})
+    return jsonify({"success": False})
 
-@app.route('/cancel_ride', methods=['POST'])
-def cancel_ride():
-    rides_coll.delete_many({"$or": [{"rider_id": session['user_id']}, {"driver_id": session['user_id']}], "status": {"$in": ["pending", "accepted"]}})
-    return jsonify({"status": "success"})
+@app.route('/admin_data')
+def admin_data():
+    if not session.get('is_admin'): return jsonify([])
+    users = list(users_coll.find({}, {"password": 0}))
+    for u in users: u['_id'] = str(u['_id'])
+    return jsonify({"users": users, "rides": list(rides_coll.find().limit(5))})
 
-@app.route('/finish_trip', methods=['POST'])
-def finish_trip():
-    rides_coll.update_one({"driver_id": session['user_id'], "status": "started"}, {"$set": {"status": "completed"}})
-    return jsonify({"status": "success"})
-
-@app.route('/admin/reset_system', methods=['POST'])
-def reset_system():
-    if not session.get('is_admin'): return jsonify({"status": "error"})
-    rides_coll.delete_many({})
-    return jsonify({"status": "success"})
+@app.route('/admin_reset', methods=['POST'])
+def admin_reset():
+    if session.get('is_admin'): 
+        rides_coll.delete_many({})
+        return jsonify({"success": True})
+    return jsonify({"success": False})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(debug=True, port=5000)

@@ -70,7 +70,7 @@ def login():
 
 @app.route('/dashboard')
 def dashboard():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session: return redirect(url_for('signup'))
     return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
 
 @app.route('/update_location', methods=['POST'])

@@ -104,7 +104,7 @@ def admin():
 def logout():
     session.clear()
     return redirect(url_for('login'))
-    @app.route('/delete/<int:id>')
+@app.route('/delete/<int:id>')
 def delete_user(id):
     # Security: Only Agam can delete users
     if 'email' not in session or session.get('email') != 'agamchugh153@gmail.com':
@@ -121,3 +121,4 @@ def delete_user(id):
 
 if __name__ == '__main__':
     app.run(debug=True)
+

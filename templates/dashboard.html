@@ -9,7 +9,7 @@
                 <p class="mb-1 text-center text-muted small">GIVE THIS OTP TO DRIVER:</p>
                 <div id="otp-display" class="display-4 text-center text-warning font-monospace fw-bold py-2" style="background: rgba(0,0,0,0.5); border-radius: 10px;">----</div>
                 <hr class="border-secondary">
-                <p id="ride-status" class="text-center badge bg-warning text-dark w-100 py-2 mb-3">Calculating...</p>
+                <p id="ride-status" class="text-center badge bg-warning text-dark w-100 py-2 mb-3">PENDING</p>
                 <button class="btn btn-outline-danger w-100" onclick="cancelRide()">CANCEL RIDE</button>
             </div>
         </div>
@@ -46,7 +46,8 @@ function sync() {
             if ("{{ role }}" === "rider") {
                 document.getElementById('booking-area').classList.add('d-none');
                 document.getElementById('active-ride-area').classList.remove('d-none');
-                document.getElementById('otp-display').innerText = data.otp || "----";
+                // Ensure the OTP is displayed as a string and stripped of spaces
+                document.getElementById('otp-display').innerText = data.otp ? data.otp.toString().trim() : "----";
                 document.getElementById('ride-status').innerText = "STATUS: " + data.status.toUpperCase();
             } else {
                 document.getElementById('driver-active-area').classList.remove('d-none');
@@ -54,9 +55,13 @@ function sync() {
                 if (data.status === 'started') {
                     document.getElementById('otp-input-section').classList.add('d-none');
                     document.getElementById('finish-section').classList.remove('d-none');
+                } else {
+                    document.getElementById('otp-input-section').classList.remove('d-none');
+                    document.getElementById('finish-section').classList.add('d-none');
                 }
             }
         } else {
+            // Reset to default booking/status view
             document.getElementById('booking-area')?.classList.remove('d-none');
             document.getElementById('active-ride-area')?.classList.add('d-none');
             document.getElementById('driver-active-area')?.classList.add('d-none');
@@ -64,18 +69,40 @@ function sync() {
     });
 }
 
+function toggleStatus() {
+    fetch('/toggle_status', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+        const btn = document.getElementById('status-btn');
+        if (data.is_online) {
+            btn.innerText = "GO OFFLINE";
+            btn.className = "btn btn-danger w-100 py-3 mb-3 fw-bold";
+        } else {
+            btn.innerText = "GO ONLINE";
+            btn.className = "btn btn-success w-100 py-3 mb-3 fw-bold";
+        }
+    });
+}
+
 function cancelRide() {
     if (confirm("Are you sure you want to cancel?")) {
-        fetch('/cancel_ride', { method: 'POST' }).then(() => location.reload());
+        fetch('/cancel_ride', { method: 'POST' }).then(() => {
+            // Immediately sync to clear the UI
+            sync();
+        });
     }
 }
 
 function verifyOTP() {
     const val = document.getElementById('otp-input').value;
+    if (!val) {
+        alert("Please enter the OTP first");
+        return;
+    }
     fetch('/verify_ride_otp', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ otp: val })
+        body: JSON.stringify({ otp: val.toString().trim() })
     })
     .then(r => r.json())
     .then(data => {
@@ -92,14 +119,24 @@ function bookRide() {
     fetch('/book_ride', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
-        if (data.status === 'success') sync();
-        else alert("No drivers nearby!");
+        if (data.status === 'success') {
+            sync();
+        } else {
+            alert("No drivers nearby!");
+        }
     });
 }
 
 function finishTrip() {
-    fetch('/finish_trip', { method: 'POST' }).then(() => location.reload());
+    if (confirm("Finish this trip?")) {
+        fetch('/finish_trip', { method: 'POST' }).then(() => {
+            location.reload();
+        });
+    }
 }
 
+// Initial sync on load
+sync();
+// Regular interval sync
 setInterval(sync, 4000);
 </script>

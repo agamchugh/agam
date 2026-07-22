@@ -39,6 +39,35 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+    @app.route('/signup', methods=['GET', 'POST'])
+def signup():
+
+    if request.method == 'POST':
+        role = request.form.get('role')
+        username = request.form.get('username')
+        email = request.form.get('email')
+        mobile = request.form.get('mobile')
+        password = request.form.get('password')
+
+        # Check if email already exists
+        existing = users_coll.find_one({"email": email})
+        if existing:
+            return "Email already registered."
+
+        users_coll.insert_one({
+            "role": role,
+            "username": username,
+            "email": email,
+            "mobile": mobile,
+            "password": password,
+            "lat": None,
+            "lon": None,
+            "is_online": False
+        })
+
+        return redirect(url_for('login'))
+
+    return render_template("signup.html")
 
 @app.route('/dashboard')
 def dashboard():

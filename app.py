@@ -39,13 +39,14 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
-    @app.route('/signup', methods=['GET', 'POST'])
+  
 
 
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
     return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
+@app.route('/signup', methods=['GET', 'POST'])
 def signup():
 
     if request.method == 'POST':

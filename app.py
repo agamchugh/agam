@@ -40,6 +40,12 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
     @app.route('/signup', methods=['GET', 'POST'])
+
+
+@app.route('/dashboard')
+def dashboard():
+    if 'user_id' not in session: return redirect(url_for('login'))
+    return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
 def signup():
 
     if request.method == 'POST':
@@ -68,12 +74,6 @@ def signup():
         return redirect(url_for('login'))
 
     return render_template("signup.html")
-
-@app.route('/dashboard')
-def dashboard():
-    if 'user_id' not in session: return redirect(url_for('login'))
-    return render_template('dashboard.html', username=session['username'], role=session['role'], is_admin=session.get('is_admin'))
-
 @app.route('/update_location', methods=['POST'])
 def update_location():
     data = request.json
